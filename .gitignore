@@ -1,0 +1,83 @@
+# ============================================================
+# .gitignore
+# 注意：文件名必须精确拼写为 .gitignore
+#   拼成 .gitnore / .gitignor，或名字前多一个空格，
+#   Git 都不会读取这个文件，所有规则会「静默失效」——
+#   不报错、不提示，密钥文件照样出现在 git status 里。
+#   改完务必自检：git check-ignore -v .env.development
+# ============================================================
+
+# ---------- 1. 环境变量与密钥（最高优先级，永远不要提交）----------
+.env
+.env.local
+.env.*
+.env.*.local
+*.env
+
+# 但保留模板文件：不含真实密钥，供他人参考格式
+# 注意：白名单 ! 必须写在忽略规则的「后面」，写在前面会被覆盖
+!.env.example
+!.env.*.example
+
+# 其他常见密钥/证书文件
+*.key
+*.pem
+secrets.json
+credentials.json
+
+# ---------- 2. macOS ----------
+# 本项目在 iCloud 桌面下，.DS_Store 很容易混进来
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+.AppleDouble
+
+# ---------- 3. 编辑器 / IDE ----------
+# 用 .vscode/* 而不是 .vscode/：
+# 目录被整体忽略后，里面的文件无法再用 ! 翻白，必须通配到具体文件
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+.idea/
+*.swp
+*.swo
+*~
+
+# ---------- 4. Python ----------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# 虚拟环境（项目内没有，留着防止以后误提交）
+.venv/
+venv/
+
+# 测试与工具缓存
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+
+# ---------- 5. Jupyter ----------
+.ipynb_checkpoints/
+
+# ---------- 6. Node（以后若加前端）----------
+node_modules/
+npm-debug.log*
+yarn-error.log*
+
+# ---------- 7. 日志与临时产物 ----------
+*.log
+*.tmp
+*.bak
