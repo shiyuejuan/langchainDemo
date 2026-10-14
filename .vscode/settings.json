@@ -1,0 +1,15 @@
+// VSCode 工作区设置（只对本项目生效，不影响其他项目）
+// 注意：settings.json 用的是 JSONC 格式，允许写 // 注释，VSCode 能正常识别；
+//      但这份文件如果被 Python 的 json.load() 读取会报错，它只给 VSCode 看。
+
+{
+    // 指定本项目的默认 Python 解释器，用 ${workspaceFolder} 占位符表示"项目根目录"，
+    // 好处是换成别的电脑 / 别的路径也不用改（写死绝对路径就会失效）。
+    // 指向 .venv 是因为项目依赖都装在这里，不用系统的 python，环境互相隔离。
+    "python.defaultInterpreterPath": "${workspaceFolder}/.venv/bin/python",
+
+    // 在 VSCode 里新开终端时，自动执行 .venv/bin/activate（Windows 上是 activate.bat），
+    // 这样终端里的 `python`、`pip` 就自动指向 .venv，不用每次手动 source。
+    // 只对"设置生效之后新开的终端"起作用，已经开着的旧终端不受影响，需要关掉重开。
+    "python.terminal.activateEnvironment": true
+}
