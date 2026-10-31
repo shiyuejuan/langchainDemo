@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>55c · 短期记忆 · 小白特供版（全用故事讲）</title>
+<style>
+  body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+         max-width: 820px; margin: 0 auto; padding: 24px 18px; color: #1e293b; line-height: 2.1; background: #f8fafc; font-size: 16px; }
+  h1 { font-size: 22px; border-bottom: 3px solid #d97706; padding-bottom: 10px; }
+  h2 { font-size: 18px; margin-top: 30px; color: #b45309; }
+  .card { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px 20px; margin: 14px 0; }
+  .amber { border-left: 5px solid #d97706; }
+  .blue { border-left: 5px solid #2563eb; }
+  .green { border-left: 5px solid #059669; }
+  .story { background: #fff7ed; border: 1px dashed #fb923c; border-radius: 12px; padding: 16px 20px; margin: 14px 0; line-height: 2.15; }
+  code { background:#eef2ff; color:#3730a3; padding:1px 6px; border-radius:4px; font-size:14px; }
+  .tip { background:#fffbeb; border:1px solid #fcd34d; border-radius:8px; padding:12px 16px; font-size:15px; }
+  .step { background:#f1f5f9; border-radius:10px; padding:10px 14px; margin:8px 0; }
+</style>
+</head>
+<body>
+
+<h1>55c · 短期记忆 · 小白特供版（先忘掉术语，听个故事）</h1>
+
+<h2>先想一个生活场景</h2>
+<div class="story">
+<p>你每天去同一家咖啡店。第一天你跟店员说：“我叫小明，我爱喝美式。”</p>
+<p>第二天你又去了。你希望店员说：“小明来啦，老规矩美式？”——<b>这就是“短期记忆”：同一个对话/同一段日子里的连续记忆。</b></p>
+<p>问题是：店员每天下班，脑子就清空了。怎么让他第二天还记得你？要靠下面三样东西。</p>
+</div>
+
+<h2>三样东西，一个都不能少</h2>
+
+<div class="card blue">
+  <h3>① State = 店员脑子里“今天这一班”记得的事</h3>
+  <p>店员今天当班，把“小明爱美式”写在他脑子的小白板上。这就是 <b>State（状态）</b>——
+  它<b>只活在当下这一次对话里</b>。下班（对话结束）就清空。</p>
+</div>
+
+<div class="card green">
+  <h3>② Checkpointer = 店长的“交接本”</h3>
+  <p>店长怕店员下班忘事，给每人配了个<b>交接本</b>：每天下班前，把今天聊过的写进本子；
+  明天接班的人翻开本子，照着续。这就是 <b>Checkpointer（检查点/存档）</b>。</p>
+  <p><b>没有这个本子</b> → 店员每天从零开始 → 你再去他问“您是？”——这就是“金鱼脑”。</p>
+</div>
+
+<div class="card amber">
+  <h3>③ Thread ID = 交接本上的“客户编号”</h3>
+  <p>店里有几百个客户，本子得按人分开。小明标 <code>A1</code>，小红标 <code>A2</code>。
+  这就是 <b>Thread ID（线程编号）</b>——它决定“这段记忆存进哪个本子、下次从哪个本子取”。</p>
+  <p>同一个编号 → 同一本 → 记得住；不同编号 → 不同本 → 各聊各的（不串台）。</p>
+</div>
+
+<h2>把三样凑齐，会发生什么（对照 55 课实验 0）</h2>
+<div class="step">🌅 第 1 天：店员把“小明=A1 爱美式”写脑子 + 写进 A1 本。</div>
+<div class="step">🌅 第 2 天：接班店员拿 A1 本 → 翻开看到小明 → 说“老规矩美式？”<span style="color:#047857"> ✓ 记住了</span></div>
+<div class="story" style="background:#ecfdf5;border-color:#10b981">
+  这对应 demo 里“消息 2 条 → 4 条”：第 1 天写了 2 行（你说+店员答），存进本子；第 2 天把旧 2 行取回 + 新 2 行 = 4 行。<b>“4 行”就是“接着聊”的铁证。</b>
+</div>
+
+<h2>拆掉其中一样，会怎样？（对照 55 课拆腿实验）</h2>
+<div class="card amber">
+  <p><b>· 拆掉 Checkpointer（有脑子有编号，但没本子）</b><br>
+  店员脑子每天清空，编号白给 → 第 2 天“您是？”→ <b>金鱼脑</b>。对应实验 1、3（都是 2→2 条，说“你还没告诉我名字”）。</p>
+  <p><b>· 拆掉 Thread ID（有本子但不给编号）</b><br>
+  店长拿着空白本子，不知道往哪写 → <b>直接摆手：“没编号我不收！”</b>。对应实验 2 的报错
+  <code>Checkpointer requires thread_id</code>。</p>
+  <p><b>· 只给编号，没本子</b><br>
+  你喊“我是 A1！”但店里没本子可记 → 还是记不住。对应实验 3。</p>
+</div>
+
+<h2>为什么叫“短期”记忆？</h2>
+<div class="card blue">
+  <p>55 课 demo 用的交接本是<b>纸本（内存）</b>——咖啡店一关门（程序退出），纸本就烧了，明天全忘。</p>
+  <p>要变“长期”，就把纸本换成<b>电脑档案（SqliteSaver，存进文件）</b>——店关了档案还在，下次还能调。
+  <b>换的只是本子材质，规矩一模一样。</b></p>
+</div>
+
+<h2>回头看那张课程公式</h2>
+<table style="border-collapse:collapse;width:100%;background:#fff">
+  <tr><th style="border:1px solid #cbd5e1;padding:8px">课程写的</th><th style="border:1px solid #cbd5e1;padding:8px">故事里的</th><th style="border:1px solid #cbd5e1;padding:8px">缺了会怎样</th></tr>
+  <tr><td style="border:1px solid #cbd5e1;padding:8px">State</td><td style="border:1px solid #cbd5e1;padding:8px">店员当班脑子（小本本）</td><td style="border:1px solid #cbd5e1;padding:8px">根本没内容可记</td></tr>
+  <tr><td style="border:1px solid #cbd5e1;padding:8px">Checkpointer</td><td style="border:1px solid #cbd5e1;padding:8px">店长交接本</td><td style="border:1px solid #cbd5e1;padding:8px">每天从零开始（金鱼脑）</td></tr>
+  <tr><td style="border:1px solid #cbd5e1;padding:8px">Thread ID</td><td style="border:1px solid #cbd5e1;padding:8px">客户编号 A1/A2</td><td style="border:1px solid #cbd5e1;padding:8px">没编号→存档员拒收→报错</td></tr>
+</table>
+
+<h2>一句话记死</h2>
+<div class="tip">📌 <b>想让 AI 记住“同一段对话”，需要三样：</b><br>
+① 当场小本本（State·记什么）<br>
+② 下班交接本（Checkpointer·怎么留住）<br>
+③ 客户编号（Thread ID·记在谁名下，不串台）<br>
+📌 三样齐 → 记得住；少一样 → 记不住或报错。</div>
+
+</body>
+</html>

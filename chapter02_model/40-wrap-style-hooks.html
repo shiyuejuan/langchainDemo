@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>5.4 Wrap-style hooks 函数用法</title>
+<style>
+  body { background:#ffffff; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; margin:0; padding:24px; }
+  h1 { font-size:18px; font-weight:600; color:#2C2C2A; text-align:center; }
+  .wrap { max-width:780px; margin:0 auto; }
+  table { border-collapse:collapse; width:100%; margin:12px 0; font-size:13px; }
+  th, td { border:1px solid #D3D1C7; padding:8px 12px; text-align:left; line-height:1.6; }
+  th { background:#EEEDFE; color:#3C3489; font-weight:500; }
+  td { color:#444441; }
+  code { font-family:Menlo,monospace; font-size:12px; background:#EEEDFE; border-radius:4px; padding:1px 5px; color:#3C3489; }
+  .card { background:#F1EFE8; border-radius:10px; padding:14px 18px; margin:10px 0; font-size:13.5px; color:#444441; line-height:1.7; }
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>5.4 Wrap-style hooks：包住调用的函数式写法</h1>
+
+<table>
+  <tr><th></th><th>钩子型（5.3 的 @before_model / @after_model）</th><th>wrap 型（本节 @wrap_model_call / @wrap_tool_call）</th></tr>
+  <tr><td><b>函数签名</b></td><td><code>(state, runtime)</code></td><td><code>(request, handler)</code></td></tr>
+  <tr><td><b>角色</b></td><td>车站：发车前后看一眼 / 动 state</td><td>包住整趟列车：改请求、改结果、短路</td></tr>
+  <tr><td><b>返回值</b></td><td>None / dict(状态更新) / Command</td><td><b>必须 return</b> handler(request) 或其加工版</td></tr>
+  <tr><td><b>装饰器参数</b></td><td>name / state_schema / tools / <b>can_jump_to</b></td><td>name / state_schema / tools（<b>没有 can_jump_to</b>——它不在图路由里）</td></tr>
+  <tr><td><b>结构</b></td><td>顺序节点</td><td>洋葱嵌套（第 35 课实跑过）</td></tr>
+</table>
+
+<h2 style="font-size:15px;font-weight:500;">wrap 型函数的三种玩法</h2>
+<div class="card">
+① <b>放行</b>：<code>return handler(request)</code> —— 纯日志/监控（demo ① 的 4 行日志中间件）。<br>
+② <b>改写后放行</b>：<code>return handler(request.override(...))</code> —— 注入 system_message、裁剪 messages、换 model（ModelFallbackMiddleware 就是这么干的）。<br>
+③ <b>短路</b>：不调 handler，直接 return 自己构造的结果 —— 工具模拟器（LLMToolEmulator）就是这种。
+</div>
+
+<h2 style="font-size:15px;font-weight:500;">实跑亮点：事前注入 vs 事后质检</h2>
+<div class="card">
+39 课让回答带"完毕"用的是<b>事后方案</b>：after_model 质检 → 不合格附提示 → <code>jump_to model</code> 重答（多花一次模型调用）。<br>
+本节用 <b>wrap 型事前方案</b>：<code>request.override(system_message=原要求+"\n结尾带'完毕'")</code> —— 请求发出前就把规矩立好，<b>一次到位，零跳转、零重试</b>。实跑最终回答结尾确实带上了"完毕"。<br>
+<b>怎么选：</b>能事前立规矩就事前（省 token）；事后质检适合兜底"模型不听话"的场景。
+</div>
+
+<h2 style="font-size:15px;font-weight:500;">实跑细节备忘</h2>
+<div class="card">
+① handler 返回的是 <code>ModelResponse</code> 类型（模型响应的封装，不是裸 AIMessage）。<br>
+② <code>name</code> 参数可自定义中间件名（默认取函数名）；<code>state_schema</code> / <code>tools</code> 与钩子型一致。<br>
+③ 改 system_message 时先接住旧的再拼接（<code>request.system_message.content</code>），别把 agent 原有系统提示冲掉。
+</div>
+</div>
+</body>
+</html>

@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>47 · 三种上下文：state / store / context</title>
+<style>
+  body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+         max-width: 900px; margin: 0 auto; padding: 28px 20px; color: #1e293b; line-height: 1.75; background: #f8fafc; }
+  h1 { font-size: 26px; border-bottom: 3px solid #2563eb; padding-bottom: 10px; }
+  h2 { font-size: 20px; margin-top: 36px; color: #1d4ed8; }
+  h3 { font-size: 16px; }
+  .card { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 18px 22px; margin: 16px 0; }
+  .blue   { border-left: 5px solid #2563eb; }
+  .green  { border-left: 5px solid #059669; }
+  .amber  { border-left: 5px solid #d97706; }
+  .gray   { border-left: 5px solid #94a3b8; }
+  table { border-collapse: collapse; width: 100%; margin: 14px 0; background: #fff; }
+  th, td { border: 1px solid #cbd5e1; padding: 9px 12px; text-align: left; font-size: 14px; }
+  th { background: #eff6ff; }
+  code { background: #eef2ff; color: #3730a3; padding: 1px 6px; border-radius: 4px;
+         font-family: "SF Mono", Menlo, monospace; font-size: 13px; }
+  pre { background: #0f172a; color: #e2e8f0; padding: 16px 18px; border-radius: 10px;
+        overflow-x: auto; font-size: 13px; line-height: 1.6; }
+  pre .k { color: #7dd3fc; }   /* 键名/高亮 */
+  pre .g { color: #86efac; }   /* 成功 */
+  pre .y { color: #fde047; }   /* 强调 */
+  .tip { background: #fffbeb; border: 1px solid #fcd34d; border-radius: 8px; padding: 12px 16px; font-size: 14px; }
+  .metaphor { font-size: 15px; color: #475569; }
+  .pill { display: inline-block; padding: 1px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+  .pill-blue  { background: #dbeafe; color: #1d4ed8; }
+  .pill-green { background: #d1fae5; color: #047857; }
+  .pill-amber { background: #fef3c7; color: #92400e; }
+</style>
+</head>
+<body>
+
+<h1>47 · 三种上下文一锅端：state / store / context</h1>
+<p>对应课程 <b>1.2.2 上下文类型及相关的 API</b>。上一讲说了"上下文工程是模型只知道你给它看的东西"，
+这一讲回答的是：<b>那些"给它看的东西"分别放在哪、活多久、能不能改？</b>
+LangGraph 给了三种"容器"，按<b>可变性 × 生命周期</b>两个维度划分：</p>
+
+<h2>一、三种上下文总表（对应课程表格的实跑版）</h2>
+<table>
+  <tr><th>上下文类型</th><th>类比</th><th>可变性</th><th>生命周期</th><th>访问方式（实跑确认）</th></tr>
+  <tr>
+    <td><span class="pill pill-blue">动态运行时上下文</span><br><b>state</b></td>
+    <td>🧰 <b>车间白板</b>：运行中谁都能往上写，下班（运行结束）就擦</td>
+    <td>动态（可变）</td><td>单次运行（配 checkpointer 可跨 invoke 续）</td>
+    <td>工具里 <code>runtime.state</code><br>组装时 <code>state_schema=MyState</code></td>
+  </tr>
+  <tr>
+    <td><span class="pill pill-green">动态跨会话上下文</span><br><b>store</b></td>
+    <td>🗄️ <b>档案柜</b>：今天来查、明天来还能查到，跨对话共享</td>
+    <td>动态（可变）</td><td>跨对话（持久）</td>
+    <td>工具里 <code>runtime.store.get(...)</code><br>组装时 <code>store=InMemoryStore()</code></td>
+  </tr>
+  <tr>
+    <td><span class="pill pill-amber">静态运行时上下文</span><br><b>context</b></td>
+    <td>🎫 <b>进场工牌</b>：进场（invoke）时发，上面写死你是谁、连哪个库，运行中不许改</td>
+    <td>静态（只读）</td><td>单次运行</td>
+    <td>工具里 <code>runtime.context</code><br>组装时 <code>context_schema=AppContext</code><br>调用时 <code>agent.invoke(输入, context=AppContext(...))</code></td>
+  </tr>
+</table>
+
+<div class="tip">💡 <b>一句话记忆法：</b>白板（state）随便写但下班就擦；档案柜（store）存得久还跨对话；工牌（context）只管这一次进场、进完场不许改。</div>
+
+<h2>二、demo 实跑：一个工具同时摸三种上下文</h2>
+<p>关键角色是工具参数 <code>runtime: ToolRuntime</code>——它身上正好挂着
+<code>state</code> / <code>store</code> / <code>context</code> 三个字段，工具内部全都能读到：</p>
+
+<pre>
+【工具内部实况】三种上下文，工具里全都摸得到：
+<span class="k">① state</span>   类型=dict
+   键有哪些：['messages', 'user_name']
+   消息条数=2，自定义键 user_name=<span class="y">'小明'</span>
+<span class="k">② store</span>   类型=InMemoryStore
+   查档案柜 (users, xiaoming)/preferences → <span class="y">{'language': '中文', 'style': '简短', 'hobby': '天文'}</span>
+<span class="k">③ context</span> 类型=AppContext
+   工牌内容：user_id=<span class="y">u-1001</span>, env=<span class="y">test</span>, db_host=<span class="y">db-internal:5432</span>
+</pre>
+
+<div class="card blue">
+  <h3>① state：车间白板</h3>
+  <p>组装时用 <code>state_schema=MyState</code> 扩展默认状态，加自定义键 <code>user_name</code>；
+  invoke 时把它随输入传进去 → 工具里 <code>runtime.state["user_name"]</code> 读到 <code>'小明'</code>。</p>
+  <p>第 2 次 invoke 同线程再问，消息条数 2→6（checkpointer 续上历史，45 课机制），
+  回答"你是小明"——白板被带着走。</p>
+</div>
+
+<div class="card green">
+  <h3>② store：档案柜</h3>
+  <p>会话开始前先放一条：<code>store.put(("users","xiaoming"), "preferences", {...})</code>。
+  工具里凭命名空间+key 取：<code>runtime.store.get(("users","xiaoming"), "preferences")</code>。</p>
+  <p>它不依赖任何 thread_id——换线程、换会话都还在，所以是"跨对话"。存用户偏好、画像、长期知识用它。</p>
+</div>
+
+<div class="card amber">
+  <h3>③ context：进场工牌</h3>
+  <p>组装时声明 <code>context_schema=AppContext</code>（dataclass），调用时传实例。</p>
+  <p>工具里 <code>runtime.context.env</code> 直接点属性——像 43 课说的，<b>context 是对象不是 dict</b>，
+  和 state 的字典访问方式不同。</p>
+</div>
+
+<h2>三、实踩的坑（两个都是真坑）</h2>
+<div class="card gray">
+  <h3>坑① context 不是塞在 config 里！</h3>
+  <p>我第一版写的是 <code>config={..., "context": AppContext(...)}</code> → 工具里读到
+  <code>runtime.context = None</code>，直接 <code>AttributeError: 'NoneType' object has no attribute 'user_id'</code>。</p>
+  <p><b>正确姿势：</b>context 是 <code>invoke</code> 的<b>顶层关键字参数</b>：</p>
+  <pre>agent.invoke(输入, config={"configurable": {"thread_id": "t1"}},
+             <span class="y">context=AppContext(...)</span>)   ← 顶层 kwargs，不进 config</pre>
+  <p>最小实验验证：塞 config 里 → None；顶层 kwargs → <code>Ctx(env='test-A')</code> 正常到达。</p>
+</div>
+<div class="card gray">
+  <h3>坑② 跑通后有一串 Pydantic 序列化警告</h3>
+  <p><code>PydanticSerializationUnexpectedValue ... field_name='context'</code>——不影响结果，属于
+  1.x 序列化器对自定义 dataclass 的提示性警告，demo 阶段可忽略；生产上可考虑换成
+  Pydantic 模型定义 context_schema。</p>
+</div>
+
+<h2>四、和已学内容的对接（知识网收口）</h2>
+<table>
+  <tr><th>新概念</th><th>接住它的旧知识</th></tr>
+  <tr><td>state（单次运行白板）</td><td>45 课 checkpointer：给白板"拍照存档"，下次 invoke 自动铺回来</td></tr>
+  <tr><td>store（跨会话档案柜）</td><td>45 课表格里"③ 换 thread_id 不串台"的另一半：线程隔离靠 checkpointer，跨线程共享靠 store</td></tr>
+  <tr><td>context（静态工牌）</td><td>46 课上下文工程"选 Select"策略的一种落地：连接串、用户 ID 这类"不该让 LLM 看到的运行参数"走 context，不占提示词</td></tr>
+  <tr><td>ToolRuntime 注入</td><td>和中间件的 <code>runtime</code> 参数同一血统（36-44 钩子家族）：框架在调用瞬间把"现场"塞给你</td></tr>
+</table>
+
+<h2>五、三句话记住</h2>
+<div class="card">
+  <ol style="margin: 4px 0;">
+    <li><b>state 管这一次</b>：运行中可变，checkpointer 让它能续；工具里 <code>runtime.state</code>。</li>
+    <li><b>store 管一辈子</b>：跨对话持久，命名空间+key 存取；工具里 <code>runtime.store</code>。</li>
+    <li><b>context 管进场</b>：invoke 时顶层 <code>context=</code> 传入、只读；工具里 <code>runtime.context</code>。
+        千万别塞进 config！</li>
+  </ol>
+</div>
+
+</body>
+</html>

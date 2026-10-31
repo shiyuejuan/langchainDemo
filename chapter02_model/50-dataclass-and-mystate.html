@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>50 · @dataclass AppContext 与 class MyState(MessagesState) 详解</title>
+<style>
+  body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+         max-width: 900px; margin: 0 auto; padding: 28px 20px; color: #1e293b; line-height: 1.85; background: #f8fafc; }
+  h1 { font-size: 24px; border-bottom: 3px solid #2563eb; padding-bottom: 10px; }
+  h2 { font-size: 19px; margin-top: 32px; color: #1d4ed8; }
+  h3 { font-size: 16px; color:#0f766e; }
+  .code { background: #0f172a; color: #e2e8f0; padding: 15px 18px; border-radius: 10px;
+          overflow-x: auto; font-size: 13.5px; line-height: 1.7; font-family: "SF Mono", Menlo, monospace; }
+  .code .cm { color: #64748b; } .code .y { color: #fde047; } .code .g { color: #86efac; }
+  .card { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px 22px; margin: 16px 0; }
+  .blue  { border-left: 5px solid #2563eb; }
+  .amber { border-left: 5px solid #d97706; }
+  table { border-collapse: collapse; width: 100%; margin: 14px 0; background: #fff; font-size: 14px; }
+  th, td { border: 1px solid #cbd5e1; padding: 8px 12px; text-align: left; vertical-align: top; }
+  th { background: #eff6ff; }
+  code { background: #eef2ff; color: #3730a3; padding: 1px 6px; border-radius: 4px; font-size: 13px; }
+  .tip { background: #fffbeb; border: 1px solid #fcd34d; border-radius: 8px; padding: 12px 16px; font-size: 14px; }
+</style>
+</head>
+<body>
+
+<h1>50 · 两个类定义详解：<code>@dataclass AppContext</code> 和 <code>MyState(MessagesState)</code></h1>
+<p>这是 47 课 demo 里最"Python 语法密集"的两段。核心是回答两个问题：
+<b>① @dataclass 是什么魔法？② 为什么 state 用继承、context 用装饰器？</b></p>
+
+<h2>① <code>@dataclass</code> —— "只写字段，构造器白送"</h2>
+<div class="card blue">
+  <p><code>@dataclass</code> 是 <b>Python 标准库</b>的装饰器（不是 LangChain 的东西）。它的魔法就一件事：
+  <b>扫一遍类里写的 <code>字段名: 类型</code> 声明，自动帮你生成 <code>__init__</code>、<code>__repr__</code>、<code>__eq__</code>。</b></p>
+  <p>没有它你得手写这些样板代码：</p>
+  <div class="code"><span class="cm"># 不用 dataclass 的原始写法（又长又容易错）</span>
+class AppContext:
+    def __init__(self, user_id, env, db_host):
+        self.user_id = user_id
+        self.env = env
+        self.db_host = db_host
+    def __repr__(self): ...   <span class="cm"># 还得手写打印格式</span></div>
+  <p>用了它，只写三行字段声明，构造器/打印/相等比较全自动（<b>实验证实</b>）：</p>
+  <div class="code"><span class="g">c = AppContext(user_id='u-1', env='test')</span>   <span class="cm"># __init__ 白送 ✓</span>
+print(c)  <span class="cm"># AppContext(user_id='u-1', env='test')  ← __repr__ 白送 ✓</span></div>
+  <p><code>user_id: str</code> 这种写法叫<b>类型注解</b>：声明"这个字段叫这名、应该是这种类型"。
+  普通类里注解只是注释；但 <b>dataclass 正是靠读这些注解来生成构造器</b>的——所以注解在这里不是装饰，是原料。</p>
+</div>
+
+<div class="card amber">
+  <h3>为什么 context_schema 必须是个类？</h3>
+  <p>LangGraph 要求 <code>context_schema</code> 传一个<b>类型</b>：它拿这个类型做两件事——
+  ① 校验你 invoke 时传的 <code>context=AppContext(...)</code> 是不是这个形状；
+  ② 把实例通过 <code>runtime.context</code> 递给工具，工具里才能<b>点属性</b>访问 <code>ctx.env</code>。
+  用 dataclass 定义它是最省事的姿势：三行字段换来完整的构造+校验+打印。</p>
+</div>
+
+<h2>② <code>class MyState(MessagesState)</code> —— 继承"自带 messages 的表"</h2>
+<div class="card blue">
+  <p><b>MessagesState 的真身不是普通类，是 TypedDict</b>（实验：<code>type(MessagesState) → _TypedDictMeta</code>）。
+  TypedDict 是"给 dict 标注键和类型的表结构"——<b>它描述一张 dict 长什么样</b>，不是定义对象。</p>
+  <p>它自带一个键（实验读出）：</p>
+  <div class="code">messages: <span class="y">Annotated[list[AnyMessage], add_messages]</span></div>
+  <p>这个注解里藏着 LangGraph 的核心机制：<code>add_messages</code> 是 <b>reducer（合并策略）</b>——
+  每个节点返回新 messages 时，<b>不是覆盖整个列表，而是追加合并</b>。这就是聊天历史能越滚越长的原因。</p>
+  <p>而 <code>class MyState(MessagesState)</code> 的继承，含义就是<b>"在这张表上加我的键"</b>（实验证实）：</p>
+  <div class="code">MyState 继承后全部键 = {'messages': ..., 'user_name': str}
+                     ↑ 继承来的    ↑ 我加的</div>
+  <p><b>实例就是 dict</b>（实验：<code>isinstance(..., dict) → True</code>）——所以工具里
+  <code>runtime.state.get('user_name')</code>、<code>state['messages']</code> 全是字典访问。</p>
+</div>
+
+<h2>③ 为什么一个用装饰器、一个用继承？（对照表）</h2>
+<table>
+  <tr><th></th><th>AppContext（@dataclass）</th><th>MyState(MessagesState)</th></tr>
+  <tr><td><b>真身</b></td><td>普通类 + 自动生成方法</td><td>TypedDict 子类（描述 dict 的表）</td></tr>
+  <tr><td><b>实例长什么样</b></td><td>对象，<b>点属性</b>：<code>ctx.env</code></td><td>就是 dict，<b>键访问</b>：<code>state['user_name']</code></td></tr>
+  <tr><td><b>可变性</b></td><td>静态：invoke 时传入，运行中不变（工牌）</td><td>动态：节点不断往里写（白板），reducer 定合并规则</td></tr>
+  <tr><td><b>为什么选这种写法</b></td><td>要的是"一组带类型的参数包"，dataclass 三行搞定构造</td><td>要的是"在已有表上加键、继承合并策略"，TypedDict 继承天然干这个</td></tr>
+  <tr><td><b>类比</b></td><td>印刷好的工牌（进场前定稿）</td><td>车间白板（边干边写，add_messages 决定"追加不覆盖"）</td></tr>
+</table>
+
+<div class="tip">💡 <b>一句话：</b>dataclass 管"打包一组<b>静态</b>参数"（写一次用一次）；
+TypedDict 继承管"声明一张<b>会演变</b>的表"（继承旧键+合并规则，再加新键）。
+两套语法服务两种数据，所以姿势不同。</div>
+
+<h2>④ 呼应 43 课的 dict 坑</h2>
+<p>43 课踩过：<code>wrap_tool_call</code> 的 <code>request.tool_call</code> 是 dict（键访问）、
+<code>wrap_model_call</code> 的 request 是对象（点属性）。现在你知道根源了：
+<b>LangGraph 里"state 系"数据全是 TypedDict（dict），"context/config 系"数据是普通类（对象）</b>。
+拿到一个东西先分清它属于哪系，就不会再混。</p>
+
+</body>
+</html>

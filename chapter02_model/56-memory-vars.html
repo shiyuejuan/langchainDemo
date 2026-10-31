@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>56 · 短期记忆：代码追踪，变量怎么变（无比喻）</title>
+<style>
+  body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+         max-width: 920px; margin: 0 auto; padding: 26px 20px; color: #1e293b; line-height: 1.85; background: #f8fafc; }
+  h1 { font-size: 22px; border-bottom: 3px solid #d97706; padding-bottom: 10px; }
+  h2 { font-size: 18px; margin-top: 30px; color: #b45309; }
+  .code { background: #0f172a; color: #e2e8f0; padding: 14px 16px; border-radius: 10px;
+          overflow-x: auto; font-size: 12.8px; line-height: 1.65; font-family: "SF Mono", Menlo, monospace; }
+  .code .cm { color: #64748b; } .code .y { color: #fde047; } .code .g { color: #86efac; } .code .r { color: #fca5a5; }
+  .card { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px 20px; margin: 14px 0; }
+  .amber { border-left: 5px solid #d97706; }
+  .blue { border-left: 5px solid #2563eb; }
+  .green { border-left: 5px solid #059669; }
+  .out { background: #0f172a; color: #a7f3d0; padding: 14px 16px; border-radius: 10px;
+         font-size: 12.8px; line-height: 1.7; font-family: "SF Mono", Menlo, monospace; white-space: pre-wrap; }
+  code { background:#eef2ff; color:#3730a3; padding:1px 6px; border-radius:4px; font-size:12.5px; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; background:#fff; font-size: 14px; }
+  th, td { border:1px solid #cbd5e1; padding:8px 11px; text-align:left; vertical-align:top; }
+  th { background:#fef3c7; }
+  .tip { background:#fffbeb; border:1px solid #fcd34d; border-radius:8px; padding:12px 16px; font-size:14px; }
+  .var { color:#1d4ed8; font-weight:600; }
+</style>
+</head>
+<body>
+
+<h1>56 · 短期记忆：代码追踪，变量怎么变（无比喻）</h1>
+<p>你说比喻反而迷糊，那我们就<b>只看代码和真实输出</b>，把三个词对应到具体变量上。</p>
+
+<h2>一、三样东西，落地就是三个变量</h2>
+<div class="code"><span class="cm"># 第 1 个变量：cp，就是 Checkpointer 本身（一个会存东西的对象）</span>
+cp = InMemorySaver()
+
+<span class="cm"># 第 2 个变量：agent，把 cp 接进去</span>
+agent = create_agent(model=llm, tools=[], system_prompt=..., <span class="y">checkpointer=cp</span>)
+
+<span class="cm"># 第 3 个变量：CFG，里面的 "t1" 字符串就是 Thread ID</span>
+CFG = {<span class="y">"configurable"</span>: {<span class="y">"thread_id"</span>: <span class="y">"t1"</span>}}
+
+<span class="cm"># State 不是单独定义的变量——它就是每次 invoke 返回的那个字典（里面有 messages）</span></div>
+<table>
+  <tr><th>课程名词</th><th>代码里的对应</th></tr>
+  <tr><td><b>State</b></td><td><code>invoke</code> 返回的那个字典，里面有 <code>messages</code> 列表（这就是“记忆载体”）</td></tr>
+  <tr><td><b>Checkpointer</b></td><td>变量 <code>cp</code>（一个 <code>InMemorySaver()</code> 对象），它内部用 thread_id 当钥匙存 state</td></tr>
+  <tr><td><b>Thread ID</b></td><td>字符串 <code>"t1"</code>，写在 <code>CFG</code> 里，是 cp 存/取的钥匙</td></tr>
+</table>
+
+<h2>二、第 1 次 invoke 后，cp 抽屉里到底存了啥（真实代码打开看）</h2>
+<div class="code"><span class="g">r1 = agent.invoke({"messages":[{"role":"user","content":"我叫小明"}]}, config=CFG)</span></div>
+<div class="out">第1次返回 state: messages 条数 = 2
+           内容 = [('human','我叫小明'), ('ai','你好，小明！...')]
+
+>>> 打开 cp 里 thread_id=t1 的抽屉：
+  抽屉里的 messages 条数 = 2
+  内容 = [('human','我叫小明'), ('ai','你好，小明！...')]</div>
+<div class="card blue">
+  <p>看：第 1 次 invoke 结束后，<code>cp</code> 的 <code>t1</code> 抽屉里已经存了一份 <b>和返回结果一模一样的 messages（2 条）</b>。
+  这是真代码 <code>cp.get_tuple(CFG)</code> 打开抽屉读出来的，不是我编的。</p>
+  <p><code>cp.get_tuple(CFG)</code> 读出的 <code>.checkpoint["channel_values"]</code> 就是“抽屉里那份 state 变量”。</p>
+</div>
+
+<h2>三、第 2 次 invoke（同一个 t1）：state 怎么被续上的（看变量变化）</h2>
+<div class="code"><span class="g">r2 = agent.invoke({"messages":[{"role":"user","content":"我叫什么"}]}, config=CFG)</span></div>
+<div class="out">第2次返回 state: messages 条数 = 4
+  内容 = [('human','我叫小明'), ('ai','你好，小明！...'),
+          ('human','我叫什么'), ('ai','你叫小明。')]</div>
+<div class="card green">
+  <p>第 2 次返回 <b>4 条</b> = 抽屉里取回的旧 2 条 + 本次新增的 2 条（你问 + AI 答）。</p>
+  <p><b>这就是“记住了”的全部真相</b>：第 2 次 invoke 时，框架用 <code>CFG</code> 里的 <code>"t1"</code> 去 <code>cp</code> 找到抽屉，
+  把里面的 2 条 messages 取出来铺回 state，再接着聊。没有这一步，就是空 state 重新开始。</p>
+</div>
+
+<h2>四、拆掉它们，变量怎么变（同一份代码跑的）</h2>
+<table>
+  <tr><th>操作</th><th>第 2 次返回的 messages 条数</th><th>原因（看变量）</th></tr>
+  <tr><td>三样齐全（有 cp + t1）</td><td><span class="g">4 条</span></td><td>cp 的 t1 抽屉有旧 2 条，取回归并</td></tr>
+  <tr><td>不接 cp（无 Checkpointer）</td><td><span class="r">2 条</span></td><td>每次 invoke 都是<b>新建的空 state 字典</b>，旧变量没地方存</td></tr>
+  <tr><td>有 cp 但不给 thread_id</td><td><span class="r">直接报错</span></td><td>cp 拿不到钥匙，不知道往哪个抽屉存</td></tr>
+</table>
+<div class="out">无 checkpointer：第2次返回的 messages 条数 = 2（永远 2，每次从空 state 开始）
+有 checkpointer 但不给 thread_id → 报错：Checkpointer requires ... thread_id</div>
+
+<h2>五、把这页浓缩成 4 行</h2>
+<div class="code"><span class="var">cp</span>   = InMemorySaver()                  <span class="cm"># 存 state 的盒子</span>
+<span class="var">CFG</span>  = {"configurable":{"thread_id":"t1"}}  <span class="cm"># 盒子上的钥匙编号</span>
+<span class="var">state</span> = agent.invoke(input, config=CFG)   <span class="cm"># 返回的字典 = 当前记忆（含 messages）</span>
+<span class="cm"># 下次 invoke 用同一个 CFG → 框架用 "t1" 打开 cp 的抽屉 → 取出旧 messages 续上</span></div>
+
+<div class="tip">📌 没有故事，只有变量：<b>cp 是盒子，CFG["thread_id"] 是钥匙，state 是盒子里那张记着 messages 的纸。</b><br>
+📌 “记住”= 第 2 次 invoke 用同一把钥匙打开同一个盒子，把旧纸上的 messages 拿回来接着写。<br>
+📌 缺盒子（cp）→ 每次都是新纸；缺钥匙（thread_id）→ 盒子不知道存哪、直接报错。</div>
+
+</body>
+</html>

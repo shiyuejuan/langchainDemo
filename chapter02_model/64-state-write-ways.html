@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>第64讲 · state 只能靠 Command update 写数据吗？</title>
+<style>
+  :root{
+    --bg:#f6f8fb; --card:#ffffff; --ink:#1f2933; --muted:#5b6b7b;
+    --line:#e3e9f0; --state:#2563eb; --state-bg:#eaf1ff;
+    --ok:#0f7b4f; --ok-bg:#e7f6ee; --bad:#c0392b; --bad-bg:#fdecea;
+    --code:#0b2545; --code-bg:#f3f5f9;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:-apple-system,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif;
+    line-height:1.7;padding:28px}
+  .wrap{max-width:960px;margin:0 auto}
+  h1{font-size:24px;margin:0 0 4px}
+  h2{font-size:19px;margin:30px 0 10px;padding-left:10px;border-left:4px solid var(--state)}
+  .sub{color:var(--muted);margin:0 0 18px;font-size:14px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;
+    padding:16px 18px;margin:14px 0;box-shadow:0 1px 2px rgba(20,40,80,.04)}
+  pre{background:var(--code-bg);color:var(--code);border:1px solid var(--line);
+    border-radius:10px;padding:12px 14px;overflow:auto;font-size:13px;
+    font-family:"SF Mono",Menlo,Consolas,monospace;line-height:1.55}
+  code{background:var(--code-bg);padding:1px 6px;border-radius:5px;
+    font-family:"SF Mono",Menlo,Consolas,monospace;font-size:12.5px}
+  .tag{display:inline-block;font-size:12px;font-weight:700;padding:2px 9px;
+    border-radius:20px;margin-right:6px}
+  .t-ok{background:var(--ok-bg);color:var(--ok)}
+  .t-bad{background:var(--bad-bg);color:var(--bad)}
+  .t-state{background:var(--state-bg);color:var(--state)}
+  table{border-collapse:collapse;width:100%;font-size:13.5px;margin:6px 0}
+  th,td{border:1px solid var(--line);padding:8px 10px;text-align:left;vertical-align:top}
+  th{background:var(--state-bg);color:var(--state)}
+  .proof{background:var(--ok-bg);border:1px solid #bfe6d2;color:#0c3d28;
+    border-radius:10px;padding:12px 14px;font-size:13px;font-family:"SF Mono",Menlo,monospace}
+  .note{color:var(--muted);font-size:13px}
+  ul{margin:8px 0;padding-left:20px}
+  li{margin:4px 0}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>第64讲 · state 只能靠 Command(update=...) 写数据吗？</h1>
+<p class="sub">文件：<code>64-state-write-ways.py</code>（已实跑验证）｜ 关联：<code>59/62/63</code> 课都用 Command 写 state</p>
+
+<div class="card">
+<h2 style="border-color:var(--state);margin-top:6px">直接回答：不是</h2>
+<p>在 <code>create_agent</code> 这套封装下，写 state 至少有 <b>三种用户可控入口</b>，Command 只是其中一种。但有一个<b>精确区分</b>你必须记住：</p>
+<ul>
+<li><b>写 messages 通道</b>：工具随便 <code>return</code> 什么，框架自动包成 ToolMessage 进 messages —— <b>不需要 Command</b>。</li>
+<li><b>写自定义字段（如 user_name）</b>：在<b>工具里</b>确实基本只有 <code>Command(update={...})</code> 这一条路（工具普通返回值被框架当消息内容，不会去碰别的通道）。所以 59/62/63 课用 Command 是对的。</li>
+<li><b>写任意字段</b>：通过 <code>invoke</code> 的<b>输入字典</b>直接写，<b>不需要 Command</b>。</li>
+</ul>
+<p>一句话：<b>Command 不是"写 state 的唯一方式"，而是"在工具里写【自定义字段】的唯一方式"</b>（外加需要 goto 跳转时必用）。</p>
+</div>
+
+<h2>方式 ①：invoke 输入字典直接写（根本不用 Command）</h2>
+<div class="card">
+<pre>r1 = agent.invoke(
+    {"messages": [{"role": "user", "content": "你好"}],
+     "user_name": "输入小明"},          # ← 输入字典直接写 state
+    config={"configurable": {"thread_id": "w1"}},
+)</pre>
+<div class="proof">实跑输出：
+输入写 user_name = '输入小明'  ← 没用 Command，输入字典直接写进了 state
+messages 条数 = 2  （模型没调工具，只有用户+AI 两条）</div>
+<p class="note">这是最朴素的写法：你传给 <code>invoke</code> 的字典，键名匹配 state 字段就直接写进对应通道（和 47/51/52 课讲的"输入即写"一致）。</p>
+</div>
+
+<h2>方式 ②：工具普通 return —— 只进 messages，碰不到自定义字段</h2>
+<div class="card">
+<pre>@tool
+def plain(q: str) -> str:
+    """普通工具，只返回字符串，不写任何自定义字段。"""
+    return "工具只返回了字符串（没有 Command）"
+
+# 先用输入字典把 user_name 设为 "A"，再调 plain
+r2a = agent.invoke({"messages":[...], "user_name":"A"}, config={"configurable":{"thread_id":"w2"}})
+r2b = agent.invoke({"messages":[{"role":"user","content":"调用 plain 工具"}]}, config={"configurable":{"thread_id":"w2"}})</pre>
+<div class="proof">实跑输出：
+调普通工具前 user_name = 'A'
+调普通工具后 user_name = 'A'  ← 没变（普通 return 只进 messages，碰不到 user_name 通道）
+messages 条数 = 6  （多了 ToolMessage + 它的 AI 回复）</div>
+<p>证明：工具<b>普通返回值</b>被框架自动包成 ToolMessage 塞进 <code>messages</code> 通道（所以 messages 从 2 涨到 6），但<b>完全不会去改 <code>user_name</code> 这种自定义通道</b>。想改它，普通 return 做不到。</p>
+</div>
+
+<h2>方式 ③：工具里 Command(update=...) 写自定义字段（复习）</h2>
+<div class="card">
+<pre>@tool
+def cmd_set(q: str, runtime: ToolRuntime) -> Command:
+    return Command(update={
+        "messages": [ToolMessage(content="用 Command 写了 user_name",
+                                 tool_call_id=runtime.tool_call_id)],
+        "user_name": "命令写的",     # ← 普通 return 做不到，只有 Command 能写自定义字段
+    })</pre>
+<div class="proof">实跑输出：
+Command 写后 user_name = '命令写的'  ← 工具改「自定义字段」的唯一正道</div>
+<p class="note">这就是为什么 59/62/63 课一律用 Command：<b>在工具里想改非 messages 的字段，只有 Command(update={通道名: 值}) 这一条路</b>（且必须带对应 ToolMessage 对账，否则框架报"Expected a matching ToolMessage"）。</p>
+</div>
+
+<h2>方式 ④（底层）：原生 StateGraph 节点 return 字典也能写</h2>
+<div class="card">
+<p>如果你<b>不用</b> <code>create_agent</code>，而是自己用 <code>langgraph.graph.StateGraph</code> 写节点函数，节点直接：</p>
+<pre>def my_node(state: S) -> dict:
+    return {"user_name": "节点写的"}   # 普通字典返回即可写 state，无需 Command</pre>
+<p>这里节点 <code>return</code> 字典就写进通道了，Command 反而是"需要额外控制"时才用（比如 <code>Command(goto="别的节点")</code> 跳转，或 <code>Command(update=..., goto=...)</code> 同时写+跳）。</p>
+<p class="note"><code>create_agent</code> 把节点封装了，你碰不到节点函数本体，所以你日常只面对"①输入字典 / ②工具return / ③工具Command"这三种。底层这条了解一下即可。</p>
+</div>
+
+<h2>怎么选：一张决策表</h2>
+<div class="card">
+<table>
+<thead><tr><th>你想写什么</th><th>在哪写</th><th>用哪种方式</th></tr></thead>
+<tbody>
+<tr><td>对话消息</td><td>任何时候</td><td>工具普通 <code>return</code>（自动进 messages）/ 节点 return</td></tr>
+<tr><td>自定义字段（如 user_name）</td><td>invoke 传入时</td><td>① 输入字典直接写</td></tr>
+<tr><td>自定义字段</td><td>工具(tool)内部</td><td>③ <code>Command(update={字段:值})</code>（唯一正道）</td></tr>
+<tr><td>自定义字段</td><td>自己写的节点</td><td>④ 节点 <code>return {"字段":值}</code></td></tr>
+<tr><td>写 + 同时控制跳转(goto)</td><td>节点/工具</td><td>必用 <code>Command(goto=...)</code></td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="card">
+<h2 style="border-color:var(--state);margin-top:6px">小结</h2>
+<ul>
+<li><b>state 写数据不止 Command</b>：输入字典可写、工具普通 return 写 messages、工具 Command 写自定义字段、底层节点 return 字典也能写。</li>
+<li><b>精确说法</b>：Command 是"<b>在工具里写自定义字段</b>"的唯一方式（59/62/63 课这么用完全正确），但不是"写 state"的总唯一方式。</li>
+<li>所以你之前学的 62/63 课"用 Command 写 state"没错，只是那是在"工具改自定义字段"这个具体前提下的唯一解；换成"输入时写"或"只写消息"，Command 就不是必须的。</li>
+</ul>
+<p class="note">下一步可选：① SqliteSaver 磁盘持久化（接 57 流程图）② Summarization 压缩历史 ③ store 长期记忆实战。说一个我接着讲。</p>
+</div>
+
+</div>
+</body>
+</html>

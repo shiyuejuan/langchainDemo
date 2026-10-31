@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>46 ｜ 上下文工程（Context Engineering）</title>
+<style>
+  body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;margin:0;
+       background:#f5f7fa;color:#1f2933;line-height:1.7;}
+  .wrap{max-width:980px;margin:0 auto;padding:32px 24px 64px;}
+  h1{font-size:26px;margin:0 0 4px;}
+  .sub{color:#647084;margin:0 0 28px;font-size:14px;}
+  .card{background:#fff;border-radius:14px;padding:24px 26px;margin:22px 0;
+        box-shadow:0 2px 10px rgba(31,41,51,.06);}
+  .card h2{font-size:18px;margin:0 0 14px;color:#2563eb;}
+  pre{background:#0f172a;color:#e2e8f0;padding:14px 16px;border-radius:10px;
+      font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;
+      overflow-x:auto;white-space:pre;}
+  .n{color:#fbbf24;} .g{color:#34d399;} .r{color:#f87171;} .c{color:#7c8aa0;}
+  .take{background:#fff7ed;border-left:4px solid #f59e0b;padding:12px 16px;
+        border-radius:0 8px 8px 0;margin:16px 0;font-size:14px;}
+  .danger{background:#fef2f2;border-left:4px solid #ef4444;padding:12px 16px;
+        border-radius:0 8px 8px 0;margin:16px 0;font-size:14px;}
+  table{border-collapse:collapse;width:100%;font-size:14px;margin-top:6px;}
+  th,td{border:1px solid #e3e8ef;padding:8px 10px;text-align:left;vertical-align:top;}
+  th{background:#f0f4ff;color:#334155;}
+  code{background:#eef2f7;padding:1px 6px;border-radius:5px;font-size:13px;}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+  .strat{border-radius:12px;padding:16px 18px;}
+  .strat h3{margin:0 0 8px;font-size:15px;}
+  .strat p{margin:0;font-size:13px;}
+  .s1{background:#ede9fe;border-left:4px solid #8b5cf6;}
+  .s2{background:#dbeafe;border-left:4px solid #3b82f6;}
+  .s3{background:#d1fae5;border-left:4px solid #10b981;}
+  .s4{background:#ffedd5;border-left:4px solid #f97316;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>上下文工程（Context Engineering）</h1>
+  <p class="sub">第 16 讲 · 第09章 · 核心命题：模型只知道你给它看的东西</p>
+
+  <div class="card">
+    <h2>① 概念：比"提示词工程"更大的一门手艺</h2>
+    <table>
+      <tr><th></th><th>提示词工程</th><th>上下文工程</th></tr>
+      <tr><td>管什么</td><td>怎么<b>措辞</b>那一句指令</td><td>每次调模型时<b>整个输入</b>里放什么：系统提示、消息历史、工具定义、检索资料</td></tr>
+      <tr><td>一句话</td><td>把话说明白</td><td>决定模型能看到什么</td></tr>
+      <tr><td>谁做</td><td>写 prompt 的人</td><td>整个系统：RAG 管道、记忆、中间件、agent 编排</td></tr>
+    </table>
+    <div class="take">
+      <b>核心命题：</b>模型没有"事实"，只有"上下文"。回答质量 = f(上下文质量)。
+      上下文给错，模型不会怀疑你——它照样答，还答得很自信。
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>② 四大策略（配 LangChain 的落地工具）</h2>
+    <div class="grid">
+      <div class="strat s1">
+        <h3>✍️ 写 Write —— 存到上下文之外</h3>
+        <p>把信息写进外部存储，需要时再取。<br>落地：<code>checkpointer</code>（45课）、记忆库、任务便签（scratchpad）。</p>
+      </div>
+      <div class="strat s2">
+        <h3>🔍 选 Select —— 把对的拉进来</h3>
+        <p>按需注入：知识进 system prompt、RAG 检索、<b>挑工具</b>（工具定义也是上下文！）。<br>落地：<code>system_prompt</code>、34课 FileSearch。</p>
+      </div>
+      <div class="strat s3">
+        <h3>🗜️ 压 Compress —— 太长就缩</h3>
+        <p>历史超长会挤爆窗口+烧钱+掉注意力。<br>落地：SummarizationMiddleware（摘要）、28课 ContextEditing（清除旧工具结果）。</p>
+      </div>
+      <div class="strat s4">
+        <h3>🧱 隔 Isolate —— 拆开各自带</h3>
+        <p>一个 agent 全知道不如多个 agent 各管一摊，互不污染。<br>落地：子 agent（subagent）、多 agent 编排（本章后面）。</p>
+      </div>
+    </div>
+    <div class="take">
+      本课 demo 演示的是 <b>Select</b>；28 课是 <b>Compress</b>；45 课 checkpointer 是 <b>Write</b>。
+      学过的中间件正好填满三个格子。
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>③ 对照实验：同一个问题 × 三种上下文（实跑）</h2>
+    <pre>问题：「智学笔的保修期是多久？」（temperature=0 可复现）
+
+<span class="c">[① 无资料] system 只说"你是客服"</span>
+  回答：智学笔的保修期为<span class="r">一年</span>，自购买之日起计算。     <span class="c">← 靠先验"蒙"的！</span>
+
+<span class="c">[② 对资料] system 注入"整机保修 12 个月，电池 6 个月"</span>
+  回答：智学笔 X1 整机保修 <span class="g">12 个月</span>，电池保修 6 个月。  <span class="c">← 有据可依</span>
+
+<span class="c">[③ 错资料] system 注入"整机保修 3 个月"</span>
+  回答：智学笔 X1 整机保修 <span class="r">3 个月</span>。                  <span class="c">← 垃圾进垃圾出</span></pre>
+    <div class="danger">
+      <b>最危险的是①：</b>模型没资料时从预训练先验里"蒙"了一个最常见的默认值"一年"，
+      <b>碰巧</b>和真实答案（12个月）一样——看起来对，实则无据可依。哪天真实保修期改成 18 个月，
+      它还会答"一年"，而且你毫无察觉。<b>没有上下文支撑的"正确答案"比错误答案更可怕。</b>
+    </div>
+    <pre><span class="c"># 核心就一个参数（注意是 system_prompt 不是 prompt）：</span>
+agent = create_agent(model=deepseek, tools=[], system_prompt=知识资料)</pre>
+  </div>
+
+  <div class="card">
+    <h2>④ 已学内容在"上下文工程"中的位置</h2>
+    <table>
+      <tr><th>策略</th><th>已学工具</th><th>作用</th></tr>
+      <tr><td>写 Write</td><td>45课 checkpointer + thread_id</td><td>state 存下来，下次续上</td></tr>
+      <tr><td>选 Select</td><td>本课 <code>system_prompt</code>；34课 FileSearch；工具定义</td><td>把知识/检索结果/能力清单放进上下文</td></tr>
+      <tr><td>压 Compress</td><td>28课 ContextEditingMiddleware；SummarizationMiddleware</td><td>清旧工具结果 / 摘要压缩历史</td></tr>
+      <tr><td>隔 Isolate</td><td>子 agent / 多 agent（后续）</td><td>拆分上下文互不污染</td></tr>
+    </table>
+    <div class="take">
+      <b>实践准则：</b>① 资料给足，别让模型靠先验蒙；② 资料给对，上游错下游全错；
+      ③ 限定"只依据以下资料回答"能显著压制幻觉；④ 工具定义、历史、检索结果都是上下文，都要管。
+    </div>
+  </div>
+</div>
+</body>
+</html>

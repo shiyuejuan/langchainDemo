@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>48 · InMemoryStore.put 逐行详解</title>
+<style>
+  body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+         max-width: 920px; margin: 0 auto; padding: 28px 20px; color: #1e293b; line-height: 1.8; background: #f8fafc; }
+  h1 { font-size: 25px; border-bottom: 3px solid #059669; padding-bottom: 10px; }
+  h2 { font-size: 19px; margin-top: 34px; color: #047857; }
+  h3 { font-size: 16px; color:#0f766e; }
+  .code { background: #0f172a; color: #e2e8f0; padding: 16px 18px; border-radius: 10px;
+          overflow-x: auto; font-size: 13.5px; line-height: 1.7; font-family: "SF Mono", Menlo, monospace; }
+  .code .cm { color: #64748b; }                 /* 注释 */
+  .code .fn { color: #7dd3fc; }                 /* 高亮 */
+  .code .kw { color: #c4b5fd; }
+  .card { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px 22px; margin: 16px 0; }
+  .green { border-left: 5px solid #059669; }
+  .amber { border-left: 5px solid #d97706; }
+  .gray  { border-left: 5px solid #94a3b8; }
+  table { border-collapse: collapse; width: 100%; margin: 14px 0; background: #fff; }
+  th, td { border: 1px solid #cbd5e1; padding: 9px 12px; font-size: 14px; text-align: left; vertical-align: top; }
+  th { background: #ecfdf5; }
+  code { background: #eef2ff; color: #3730a3; padding: 1px 6px; border-radius: 4px; font-size: 13px; }
+  .tip { background: #fffbeb; border: 1px solid #fcd34d; border-radius: 8px; padding: 12px 16px; font-size: 14px; }
+  .pill { display:inline-block; padding:1px 10px; border-radius:999px; font-size:12px; font-weight:600; }
+  .pill-green { background:#d1fae5; color:#047857; }
+  .pill-amber { background:#fef3c7; color:#92400e; }
+</style>
+</head>
+<body>
+
+<h1>48 · <code>InMemoryStore</code> 三行代码逐行详解</h1>
+<p>对应 47 课「store = 档案柜」那段。下面把你贴的三行拆开讲，再补上它没写出来、但生产必须知道的
+<b>四个隐藏行为</b>（其中第 1 条是我实跑踩出来的真坑）。</p>
+
+<div class="code">
+<span class="cm"># ① 建一个内存档案柜</span>
+<span class="kw">store</span> = InMemoryStore()
+<span class="cm"># ② 会话开始前，先往档案柜里放一条用户偏好（namespace, key, value）</span>
+store.put(("users", "xiaoming"), "preferences",
+          {"language": "中文", "style": "简短", "hobby": "天文"})
+</div>
+
+<h2>① <code>store = InMemoryStore()</code> —— 建柜子</h2>
+<div class="card green">
+  <p><b>是什么：</b>一个<b>进程内</b>的键值存储（key-value store）。数据存在 Python 进程的内存里。</p>
+  <p><b>“InMemory” 两个后果要记死：</b></p>
+  <ul>
+    <li>✅ 读写极快，不需要装数据库；</li>
+    <li>❌ <b>程序一退出，数据全没</b>（断电即失）。它只是“这次运行的档案柜”，不是真数据库。</li>
+  </ul>
+  <p><b>生产替代：</b>要真持久化，换 <code>SqliteStore</code>（落本地文件）或 LangGraph Platform 的托管 store。
+  接口完全一样（都是 <code>put / get / search / delete</code>），只改“柜子从哪来”。</p>
+  <p>它传给 <code>create_agent(store=store)</code>，框架在调用工具时把柜子通过 <code>runtime.store</code> 递给工具——这就是 47 课工具里 <code>runtime.store.get(...)</code> 摸到的那个柜子。</p>
+</div>
+
+<h2>② <code>store.put(namespace, key, value)</code> —— 放东西</h2>
+<p>三个参数，对应“柜子里的三层定位”：</p>
+<table>
+  <tr><th>参数</th><th>你的代码里</th><th>含义（类比）</th><th>实跑约束</th></tr>
+  <tr>
+    <td><b>namespace</b><br><code>tuple</code></td>
+    <td><code>("users", "xiaoming")</code></td>
+    <td>📁 文件夹路径（多级）。<b>元组长度自由</b>，用层级分租户/分用户/分类型。
+        第一级常放实体类型 <code>"users"</code>，第二级放具体 ID <code>"xiaoming"</code>。</td>
+    <td>必须是元组；<code>search</code> 时传<b>前缀元组</b>即可按层级批量找（见下）。</td>
+  </tr>
+  <tr>
+    <td><b>key</b><br><code>str</code></td>
+    <td><code>"preferences"</code></td>
+    <td>🏷️ 文件夹里的文件名。同一 namespace 下靠 key 区分多条记录（如 preferences / orders / profile）。</td>
+    <td>字符串。</td>
+  </tr>
+  <tr>
+    <td><b>value</b><br><code>dict</code></td>
+    <td><code>{"language":"中文", ...}</code></td>
+    <td>📄 文件内容本体——真正你想持久的业务数据。</td>
+    <td><span class="pill pill-amber">必须 dict</span> 见下方坑①。</td>
+  </tr>
+</table>
+
+<div class="card amber">
+  <h3>🪤 坑①：value 必须是 dict，不能是 list / str / int！</h3>
+  <p>我第一版探头里想存订单列表 <code>[101,102]</code>（非 dict），直接炸：</p>
+  <div class="code"><span class="cm"># 错误示范</span>
+store.put(('users','xiaoming'), 'orders', [101, 102])
+<span class="cm"># → TypeError: cannot convert dictionary update sequence element #0 to a sequence</span></div>
+  <p>InMemoryStore 内部会把 value 转成 <code>dict(op.value)</code>，所以<b>只能是映射（dict）</b>。
+  想存多个值，包一层字典即可：<code>{'list': [101,102]}</code>。这个约束不像“报错信息”那样直观，初学者极易中招。</p>
+</div>
+
+<h2>③ <code>{"language":"中文","style":"简短","hobby":"天文"}</code> —— 你放的内容</h2>
+<div class="card gray">
+  <p>就是一份普通的 Python 字典，存的是“小明的偏好”。可以是任意嵌套 dict / list，只要最外层是 dict。
+  47 课工具里这么取：</p>
+  <div class="code">item = runtime.store.get(("users", "xiaoming"), "preferences")
+<span class="cm"># item 是 Item 对象，真实数据在 .value</span>
+print(item.value)   <span class="cm"># {'language':'中文','style':'简短','hobby':'天文'}</span></div>
+  <p><b>记住 get 返回的不是裸 value，而是 <code>Item</code> 对象</b>——它身上还有 <code>.key</code>、<code>.namespace</code>、<code>.created_at</code>。
+  直接拿 <code>item</code> 当字典用会错，必须 <code>item.value</code>。</p>
+</div>
+
+<h2>四、它没写出来、但你必须知道的行为（实跑验证）</h2>
+
+<div class="card green">
+  <h3>行为 1：<code>search</code> 按 namespace 前缀批量查</h3>
+  <p>不必精确知道 key，传<b>前缀元组</b>就能拉出整片：</p>
+  <div class="code">for it in store.search(("users",)):          <span class="cm"># 所有用户</span>
+    print(it.namespace, it.key, '->', it.value)
+<span class="cm"># ('users','xiaoming') preferences -> {...}</span>
+<span class="cm"># ('users','xiaoming') orders    -> {'list':[...]}</span>
+<span class="cm"># ('users','xiaohong') preferences -> {...}</span>
+store.search(("users","xiaoming"))   <span class="cm"># 只查 xiaoming 名下两条</span></div>
+</div>
+
+<div class="card green">
+  <h3>行为 2：同 namespace + key 再 put = <b>覆盖</b>，不是追加</h3>
+  <div class="code">store.put(('users','xiaoming'), 'preferences', {'language':'中文','hobby':'天文','updated':True})
+print(store.get(('users','xiaoming'),'preferences').value)
+<span class="cm"># {'language':'中文','hobby':'天文','updated':True}  ← 旧的 'style' 没了，整条被覆盖</span></div>
+  <p>所以要“改某个字段”，得先 get 出旧值、改完再 put 整条；没有“只补一个键”的原生 API。</p>
+</div>
+
+<div class="card green">
+  <h3>行为 3：<code>delete(namespace, key)</code> 删除单条</h3>
+  <div class="code">store.delete(('users','xiaoming'), 'orders')
+<span class="cm"># 删后 search(xiaoming) 只剩 ['preferences']</span></div>
+</div>
+
+<div class="card green">
+  <h3>行为 4：跨线程/跨会话天然共享（它存在，checkpointer 不在）</h3>
+  <p>store 是挂在 agent 上的独立对象，不属于任何 thread_id。所以：换 thread_id（45 课的“隔离”实验）它照样在；
+  不同用户的对话也能读到同一份 namespace 数据。<b>这正是它和 checkpointer（按线程隔离）的本质区别</b>——
+  store 用来存“该跨对话保留的”长期记忆（用户画像、偏好、知识），checkpointer 用来存“单次会话的聊天历史”。</p>
+</div>
+
+<h2>五、记忆锚点</h2>
+<div class="card">
+  <p style="margin:4px 0"><span class="pill pill-green">store 三件套</span>
+  <code>InMemoryStore()</code>（建柜，进程内易失）→
+  <code>put(tuple_ns, str_key, dict_value)</code>（放，value 必 dict）→
+  <code>get/ search/ delete</code>（取/按前缀批量查/删）。</p>
+  <p style="margin:4px 0"><span class="pill pill-green">定位公式</span>
+  namespace 像“文件夹路径（元组可多级）”，key 像“文件名”，value 像“文件内容（必 dict）”。</p>
+  <p style="margin:4px 0"><span class="pill pill-green">和 state/checkpointer 的分工</span>
+  state=单次会话白板；checkpointer=单次会话历史（按线程隔离）；store=跨会话长期档案（不隔离）。</p>
+</div>
+
+</body>
+</html>

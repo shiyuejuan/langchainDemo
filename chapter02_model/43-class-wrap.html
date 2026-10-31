@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>43 ｜ wrap_model_call / wrap_tool_call 类方式实现</title>
+<style>
+  body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;margin:0;
+       background:#f5f7fa;color:#1f2933;line-height:1.7;}
+  .wrap{max-width:980px;margin:0 auto;padding:32px 24px 64px;}
+  h1{font-size:26px;margin:0 0 4px;}
+  .sub{color:#647084;margin:0 0 28px;font-size:14px;}
+  .card{background:#fff;border-radius:14px;padding:24px 26px;margin:22px 0;
+        box-shadow:0 2px 10px rgba(31,41,51,.06);}
+  .card h2{font-size:18px;margin:0 0 14px;color:#2563eb;}
+  pre{background:#0f172a;color:#e2e8f0;padding:14px 16px;border-radius:10px;
+      font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;
+      overflow-x:auto;white-space:pre;}
+  .k{color:#fbbf24;} .s{color:#34d399;} .c{color:#7c8aa0;} .n{color:#60a5fa;}
+  .take{background:#fff7ed;border-left:4px solid #f59e0b;padding:12px 16px;
+        border-radius:0 8px 8px 0;margin:16px 0;font-size:14px;}
+  table{border-collapse:collapse;width:100%;font-size:14px;margin-top:6px;}
+  th,td{border:1px solid #e3e8ef;padding:8px 10px;text-align:left;vertical-align:top;}
+  th{background:#f0f4ff;color:#334155;}
+  code{background:#eef2f7;padding:1px 6px;border-radius:5px;font-size:13px;}
+  .warn{background:#fef2f2;border-left:4px solid #ef4444;padding:12px 16px;
+        border-radius:0 8px 8px 0;margin:16px 0;font-size:14px;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>wrap_model_call / wrap_tool_call 的「类方式」实现</h1>
+  <p class="sub">第 13 讲 · 对应 40 课的函数装饰器方式 · 类方式的独有优势：有 self，能持有状态</p>
+
+  <div class="card">
+    <h2>① 类方式骨架（三条固定规则回顾）</h2>
+    <pre><span class="k">class</span> XxxMW(AgentMiddleware):      <span class="c"># 规则1：必须继承 AgentMiddleware</span>
+    <span class="k">def</span> __init__(self):
+        super().__init__()
+        self.xxx = 0                    <span class="c"># 类方式独有：self 持有跨调用状态</span>
+
+    <span class="k">@property</span>
+    <span class="k">def</span> name(self):                    <span class="c"># 规则2：name 是只读 property，别用 self.name= 存状态</span>
+        <span class="k">return</span> <span class="s">"XxxMW"</span>                <span class="c"># 不重写→默认=类名；同类多实例必须唯一（35 课坑）</span>
+
+    <span class="k">def</span> wrap_model_call(self, request, handler):   <span class="c"># 必须叫这名（规则3：拼错静默失效）</span>
+        <span class="c"># request=模型请求, handler=洋葱下一层钥匙</span>
+        <span class="k">return</span> handler(request)        <span class="c"># 放行 / override 改写 / 不调则短路</span>
+
+    <span class="k">def</span> wrap_tool_call(self, request, handler):
+        <span class="k">return</span> handler(request)</pre>
+    <div class="take">
+      <b>类方式 vs 函数方式：</b>函数方式 <code>@wrap_model_call</code> 本质就是
+      “自动帮你生成一个 AgentMiddleware 子类”（这正是 38 课规则1能成立的原因）。
+      二选一即可；<b>需要 self 状态、多个钩子共享、或打包成可复用组件时用类方式</b>，单行轻量用函数方式。
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>② 三种玩法（类方式重写 40 课）</h2>
+    <pre><span class="c"># 玩法① 放行：log 后原样调用（用 self 计数，类方式独有）</span>
+<span class="k">class</span> PassMW(AgentMiddleware):
+    <span class="k">def</span> __init__(self):
+        super().__init__(); self.model_calls = 0
+    <span class="k">@property</span>
+    <span class="k">def</span> name(self): <span class="k">return</span> <span class="s">"PassMW"</span>
+    <span class="k">def</span> wrap_model_call(self, request, handler):
+        self.model_calls += 1
+        <span class="k">print</span>(<span class="s">f"第 {self.model_calls} 次调模型"</span>)
+        <span class="k">return</span> handler(request)          <span class="c"># 原样放行</span>
+
+<span class="c"># 玩法② 改写：注入硬性指令（override system_message）</span>
+<span class="k">class</span> InjectMW(AgentMiddleware):
+    <span class="k">@property</span>
+    <span class="k">def</span> name(self): <span class="k">return</span> <span class="s">"InjectMW"</span>
+    <span class="k">def</span> wrap_model_call(self, request, handler):
+        extra = <span class="s">"\n[附加指令] 回答结尾必须带【完毕】"</span>
+        new_sys = _append_sys(request.system_message, extra)
+        <span class="k">return</span> handler(request.override(system_message=new_sys))
+
+<span class="c"># 玩法③ 短路：不调 handler，自己造 ToolMessage</span>
+<span class="k">class</span> FakeToolMW(AgentMiddleware):
+    <span class="k">@property</span>
+    <span class="k">def</span> name(self): <span class="k">return</span> <span class="s">"FakeToolMW"</span>
+    <span class="k">def</span> wrap_tool_call(self, request, handler):
+        tc = request.tool_call            <span class="c"># ⚠️ 是「字典」不是对象！</span>
+        <span class="k">return</span> [ToolMessage(content=<span class="s">"（模拟）北京：晴 22 度"</span>,
+                            tool_call_id=tc[<span class="s">"id"</span>])]</pre>
+  </div>
+
+  <div class="card">
+    <h2>③ 实跑输出</h2>
+    <pre><span class="c"># 玩法① 放行（self 计数跨 2 轮累加）</span>
+  [类·放行] 第 <span class="n">1</span> 次调模型，记日志后原样放行
+  [类·放行] 第 <span class="n">2</span> 次调模型，记日志后原样放行
+最终回答： 北京现在是晴天，气温 22 度…
+
+<span class="c"># 玩法② 改写（注入【完毕】生效）</span>
+  [类·改写] 给模型注入硬性指令后放行
+最终回答： 你好！有什么可以帮你的吗？【完毕】
+
+<span class="c"># 玩法③ 短路（真工具被拦，没执行）</span>
+  [类·短路] 拦截工具 get_weather，不执行真工具，自己造假结果
+最终回答： 北京现在是晴天，气温 22 度…</pre>
+    <div class="warn">
+      <b>踩坑（实测）：</b><code>wrap_tool_call</code> 的 <code>request.tool_call</code>
+      在 LangChain 1.x 是<b>字典</b>——取名字用 <code>tc["name"]</code>、取 id 用 <code>tc["id"]</code>；
+      而 <code>wrap_model_call</code> 的 <code>request</code> 是带属性访问的对象（<code>request.messages</code> /
+      <code>request.system_message</code>）。两者<strong>不一样</strong>，混用会 <code>AttributeError</code>。
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>④ 类方式 vs 函数方式 对照</h2>
+    <table>
+      <tr><th>维度</th><th>类方式（本课）</th><th>函数方式（40 课）</th></tr>
+      <tr><td>写法</td><td><code>class Xxx(AgentMiddleware)</code> 里写方法</td><td><code>@wrap_model_call</code> 直接装饰函数</td></tr>
+      <tr><td>持有状态</td><td>✅ <code>self</code> 可跨调用存数据（计数/缓存）</td><td>❌ 函数无 state（需闭包/全局）</td></tr>
+      <tr><td>多钩子打包</td><td>✅ 一个类里可同时放 before/after/wrap</td><td>多个装饰器，各自独立</td></tr>
+      <tr><td>name 判重</td><td>需重写 <code>name</code> property 保证唯一</td><td>函数名天然唯一，免坑</td></tr>
+      <tr><td>适用</td><td>复用组件、带状态、多钩子共享</td><td>单行轻量、一次性逻辑</td></tr>
+    </table>
+    <div class="take">
+      一句话：函数方式是“语法糖”，背后就是动态生成你这个类。会写类方式，函数方式一看就懂；
+      会写函数方式，类方式只是把同一个函数搬进 <code>AgentMiddleware</code> 子类的方法里。
+    </div>
+  </div>
+</div>
+</body>
+</html>

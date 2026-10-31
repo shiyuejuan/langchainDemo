@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>51 · 47 课 demo 逐行精讲（三种上下文一锅端）</title>
+<style>
+  body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+         max-width: 940px; margin: 0 auto; padding: 28px 22px; color: #1e293b; line-height: 1.85; background: #f8fafc; }
+  h1 { font-size: 25px; border-bottom: 3px solid #2563eb; padding-bottom: 10px; }
+  h2 { font-size: 19px; margin-top: 34px; color: #1d4ed8; }
+  h3 { font-size: 16px; color:#0f766e; }
+  .code { background: #0f172a; color: #e2e8f0; padding: 14px 16px; border-radius: 10px;
+          overflow-x: auto; font-size: 12.8px; line-height: 1.65; font-family: "SF Mono", Menlo, monospace; }
+  .code .cm { color: #64748b; } .code .y { color: #fde047; } .code .g { color: #86efac; }
+  .card { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px 22px; margin: 14px 0; }
+  .blue { border-left: 5px solid #2563eb; }
+  .green { border-left: 5px solid #059669; }
+  .amber { border-left: 5px solid #d97706; }
+  .gray { border-left: 5px solid #94a3b8; }
+  table { border-collapse: collapse; width: 100%; margin: 14px 0; background: #fff; font-size: 13.5px; }
+  th, td { border: 1px solid #cbd5e1; padding: 8px 11px; text-align: left; vertical-align: top; }
+  th { background: #eff6ff; }
+  code { background: #eef2ff; color: #3730a3; padding: 1px 6px; border-radius: 4px; font-size: 12.5px; }
+  .step { display:inline-block; background:#2563eb; color:#fff; width:24px; height:24px;
+          border-radius:50%; text-align:center; line-height:24px; font-size:13px; margin-right:8px; }
+  .tip { background:#fffbeb; border:1px solid #fcd34d; border-radius:8px; padding:12px 16px; font-size:14px; }
+</style>
+</head>
+<body>
+
+<h1>51 · 47 课 demo 逐行精讲</h1>
+<p>把 <code>47-three-contexts-demo.py</code> 当作一条流水线，从上到下走一遍。
+三句话总纲：<b>定义一个工具同时摸三种上下文 → 组装 agent 时把三套"柜子"都挂上 → 调用时把数据灌进去</b>。</p>
+
+<h2><span class="step">1</span>文件头 & 导入</h2>
+<div class="code"><span class="cm"># -*- coding: utf-8 -*-</span>
+<span class="cm">"""47 · 三种上下文一锅端：state / store / context ..."""</span>
+<span class="kw">import</span> os
+<span class="kw">from</span> dataclasses <span class="kw">import</span> dataclass
+<span class="kw">from</span> langchain.agents <span class="kw">import</span> create_agent
+<span class="kw">from</span> langchain.tools <span class="kw">import</span> tool, ToolRuntime
+<span class="kw">from</span> langchain_openai <span class="kw">import</span> ChatOpenAI
+<span class="kw">from</span> langgraph.checkpoint.memory <span class="kw">import</span> InMemorySaver
+<span class="kw">from</span> langgraph.store.memory <span class="kw">import</span> InMemoryStore
+<span class="kw">from</span> langgraph.graph <span class="kw">import</span> MessagesState</div>
+<div class="card gray">
+  <p>导入分四股：① 模型接入（<code>ChatOpenAI</code>，DeepSeek 走 OpenAI 兼容接口）；
+  ② agent 工厂 <code>create_agent</code>；③ 工具相关 <code>tool</code>（装饰器）+ <code>ToolRuntime</code>（注入给工具的"现场包"）；
+  ④ 三套存储：<code>InMemorySaver</code>（checkpointer）、<code>InMemoryStore</code>（store）、<code>MessagesState</code>（state 基类）。</p>
+</div>
+
+<h2><span class="step">2</span>模型：用 ChatOpenAI 对接 DeepSeek</h2>
+<div class="code">deepseek = ChatOpenAI(
+    model="deepseek-chat",
+    api_key=os.environ["DEEPSEEK_API_KEY"],
+    base_url="https://api.deepseek.com/v1",
+    temperature=0,
+)</div>
+<div class="card blue">
+  <p>DeepSeek 提供 OpenAI 兼容接口，所以直接用 <code>ChatOpenAI</code> 套一层、改 <code>base_url</code> 即可。
+  <code>temperature=0</code> 让回答尽量确定，做实验时输出稳定、好对比。</p>
+  <p><b>小坑：</b>原文件用 <code>os.environ["DEEPSEEK_API_KEY"]</code>（中括号、缺了就崩）。
+  实测运行时要用 <code>source .env</code> 把 key 导进环境，否则 <code>KeyError</code>。
+  更稳的写法是 <code>os.getenv("DEEPSEEK_API_KEY")</code>（缺了返回 None 不崩）。</p>
+</div>
+
+<h2><span class="step">3</span>③ 静态上下文：<code>AppContext</code>（工牌）</h2>
+<div class="code"><span class="cm"># ③ 静态运行时上下文：context_schema —— 启动时传入、运行中不变</span>
+<span class="cm">#   类比：进场时发的"工牌"，上面写死了你是谁、连的哪个库</span>
+<span class="kw">@dataclass</span>
+<span class="kw">class</span> AppContext:
+    <span class="cm">"""本次运行开始前就定死的元数据"""</span>
+    user_id: str
+    env: str          <span class="cm"># prod / test</span>
+    db_host: str      <span class="cm"># 模拟"数据库连接"这类静态资源</span></div>
+<div class="card green">
+  <p>这是 <b>context</b>：运行时定死、中途不变的"工牌"。用 <code>@dataclass</code>（50/50b 讲过）三行字段换来自动构造。
+  后面传给 <code>create_agent(context_schema=AppContext)</code>，调用时 <code>context=AppContext(...)</code>，
+  工具里用 <code>runtime.context.user_id</code> <b>点属性</b>访问（卡片用点）。</p>
+</div>
+
+<h2><span class="step">4</span>① 动态上下文：<code>MyState(MessagesState)</code>（白板）</h2>
+<div class="code"><span class="cm"># ① 动态运行时上下文：state —— 单次运行内会"演变"的可变数据</span>
+<span class="cm">#   除默认 messages 外，加一个自定义键 user_name</span>
+<span class="kw">class</span> MyState(MessagesState):
+    user_name: str   <span class="cm"># 自定义键，随运行演变</span></div>
+<div class="card blue">
+  <p>这是 <b>state</b>：单次运行中可变的"白板"。<code>MessagesState</code> 是 TypedDict（50 讲过），自带 <code>messages</code> 键且用
+  <code>add_messages</code> reducer 追加。这里<b>继承它再加一个 <code>user_name</code> 栏</b>。
+  工具里用 <code>runtime.state.get('user_name')</code> <b>字典访问</b>（便签纸用方括号）。</p>
+</div>
+
+<h2><span class="step">5</span>② 跨会话上下文：<code>InMemoryStore</code> + put（档案柜）</h2>
+<div class="code">store = InMemoryStore()
+<span class="cm"># 会话开始前，先往档案柜里放一条用户偏好（namespace, key, value）</span>
+store.put(("users", "xiaoming"), "preferences",
+          {"language": "中文", "style": "简短", "hobby": "天文"})</div>
+<div class="card green">
+  <p>这是 <b>store</b>：跨对话共享的"档案柜"。<code>put(("users","xiaoming"), "preferences", dict)</code>：
+  namespace 是多级文件夹路径（49 讲过）、key 是文件名、value <b>必须是 dict</b>（48 的坑①，传 list/str 会 TypeError）。
+  后面工具里 <code>runtime.store.get(("users","xiaoming"), "preferences").value</code> 取出
+  —— 注意 get 返回 <code>Item</code> 对象，真实数据在 <code>.value</code>。</p>
+</div>
+
+<h2><span class="step">6</span>关键角色：<code>my_info</code> 工具（同时摸三种上下文）</h2>
+<div class="code"><span class="kw">@tool</span>
+<span class="kw">def</span> my_info(question: str, runtime: ToolRuntime) -> str:
+    <span class="cm">"""汇报我在工具里能看到的三种上下文。"""</span>
+    state = runtime.state          <span class="cm"># ①</span>
+    item  = runtime.store.get(...) <span class="cm"># ②</span>
+    ctx   = runtime.context        <span class="cm"># ③</span></div>
+<div class="card gray">
+  <h3>这一行是整份 demo 的灵魂：<code>runtime: ToolRuntime</code></h3>
+  <p>工具函数多写一个 <code>runtime</code> 形参（类型标 <code>ToolRuntime</code>），<b>框架在调用工具瞬间自动把"现场"塞进来</b>，
+  不用你手动传。这个 <code>runtime</code> 身上一次挂着三个字段：<code>state</code> / <code>store</code> / <code>context</code>，
+  所以一个工具就能把三种上下文全读到（实跑打印见 47 课 HTML）。</p>
+  <p>这也和 36-44 课的<strong>中间件 <code>runtime</code></strong> 同一血统：框架在关键时刻把"现场包"交给你。</p>
+  <p><code>question: str</code> 是给 LLM 看的参数（工具签名的一部分）；<code>runtime</code> 不会暴露给模型，纯给代码用。</p>
+</div>
+
+<h2><span class="step">7</span>组装 agent：四套东西一次挂齐</h2>
+<div class="code">agent = create_agent(
+    model=deepseek,
+    tools=[my_info],
+    system_prompt="你是助手。需要环境信息时调用 my_info 工具……",
+    state_schema=MyState,            <span class="cm"># ① 自定义 state</span>
+    context_schema=AppContext,       <span class="cm"># ③ 静态 context</span>
+    store=store,                     <span class="cm"># ② 跨会话 store</span>
+    checkpointer=InMemorySaver(),    <span class="cm"># 让 state 跨 invoke 续上</span>
+)</div>
+<div class="card blue">
+  <p><code>create_agent</code> 的参数（inspect 实查过）里这四个正是三上下文的"挂点"：
+  <code>state_schema</code> / <code>context_schema</code> / <code>store</code>；外加 <code>checkpointer</code>
+  让 state 能按 <code>thread_id</code> 跨 invoke 续上（45 课机制）。
+  <code>system_prompt</code>（不是 <code>prompt</code>，46 课踩过）告诉 LLM 什么时候该调工具。</p>
+</div>
+
+<h2><span class="step">8</span>调用：两行 invoke，藏着大坑</h2>
+<div class="code">CFG = {"configurable": {"thread_id": "t1"}}
+CTX = AppContext(user_id="u-1001", env="test", db_host="db-internal:5432")
+
+r1 = agent.invoke(
+    {"messages": [{"role":"user","content":"我是谁？我的偏好和环境是什么？"}],
+     "user_name": "小明"},                 <span class="cm"># ① state 键随输入进来</span>
+    config=CFG,
+    context=CTX,                           <span class="cm"># ③ context 是【顶层关键字参数】</span>
+)</div>
+<div class="card amber">
+  <h3>🪤 大坑：context 不进 config！</h3>
+  <p>第一版写成 <code>config={..., "context": AppContext(...)}</code> → 工具里读到 <code>runtime.context=None</code>，
+  直接 <code>AttributeError</code>。正确姿势是 <code>agent.invoke(input, config=CFG, context=CTX)</code>——
+  <b>context 是 invoke 的顶层 kwargs，不是 config 里的一项</b>（最小实验验证过）。</p>
+</div>
+<div class="card green">
+  <h3>第 2 次 invoke：验证白板被带着走</h3>
+  <p>同 <code>thread_id="t1"</code> 再问，state 的历史被 checkpointer 续上——消息条数 2 → 6。
+  且把 <code>user_name</code> 改成 <code>"明明"</code> 再次输入，证明 state 是"运行中的白板"，可以演变。
+  而 store（档案柜）换线程/换会话都还在，context（工牌）每次 invoke 重新发。</p>
+</div>
+
+<h2>九、整条流水线一图记</h2>
+<table>
+  <tr><th>阶段</th><th>对应变量</th><th>一句话</th></tr>
+  <tr><td>定义工具</td><td><code>my_info(runtime)</code></td><td>工具靠 <code>runtime</code> 一次摸三种上下文</td></tr>
+  <tr><td>挂柜子</td><td><code>create_agent(state_schema/context_schema/store/checkpointer)</code></td><td>把三套存储+记忆一次性接好</td></tr>
+  <tr><td>灌数据</td><td><code>invoke(input+user_name, config=CFG, context=CTX)</code></td><td>state 随输入、context 顶层传、store 早放好</td></tr>
+  <tr><td>取结果</td><td>工具内 <code>runtime.state/.store/.context</code></td><td>白板(dict) / 档案柜(Item.value) / 工牌(点属性)</td></tr>
+</table>
+
+<div class="tip">💡 <b>本文件串联了前面所有课：</b>45(checkpointer 续史) · 46(system_prompt 写 Select) ·
+48(store 的 put/value/namespace) · 49(namespace 文件夹路径) · 50/50b(@dataclass 与 TypedDict 继承) ·
+以及 43 课的 dict vs 对象访问姿势。把它跑通，三种上下文就真正"长在手上"了。</div>
+
+</body>
+</html>

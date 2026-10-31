@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>53 · store 的 xiaoming 与 invoke 的 user_name 什么关系？</title>
+<style>
+  body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+         max-width: 880px; margin: 0 auto; padding: 26px 20px; color: #1e293b; line-height: 1.9; background: #f8fafc; }
+  h1 { font-size: 22px; border-bottom: 3px solid #059669; padding-bottom: 10px; }
+  h2 { font-size: 18px; margin-top: 30px; color: #047857; }
+  .code { background: #0f172a; color: #e2e8f0; padding: 14px 16px; border-radius: 10px;
+          overflow-x: auto; font-size: 13px; line-height: 1.7; font-family: "SF Mono", Menlo, monospace; }
+  .code .cm { color: #64748b; } .code .y { color: #fde047; } .code .g { color: #86efac; }
+  .card { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px 20px; margin: 14px 0; }
+  .green { border-left: 5px solid #059669; }
+  .amber { border-left: 5px solid #d97706; }
+  .blue  { border-left: 5px solid #2563eb; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; background:#fff; font-size: 14px; }
+  th, td { border:1px solid #cbd5e1; padding:8px 11px; text-align:left; vertical-align:top; }
+  th { background:#ecfdf5; }
+  code { background:#eef2ff; color:#3730a3; padding:1px 6px; border-radius:4px; font-size:12.5px; }
+  .tip { background:#fffbeb; border:1px solid #fcd34d; border-radius:8px; padding:12px 16px; font-size:14px; }
+</style>
+</head>
+<body>
+
+<h1>53 · store 里的 "xiaoming" 和 invoke 里的 "user_name" 什么关系？</h1>
+<p>你一眼看出这两处都出现了“小明”——这是 <b>47 课 demo 里最容易让人误会的“隐性假设”</b>。直接给结论：</p>
+
+<div class="card amber">
+  <p style="margin:4px 0"><b>它们没有任何程序关联！</b> 只是 demo 的作者（我）在写的时候，
+  <b>人为地</b>让两边的字符串都叫“小明/ xiaoming”，好让输出的那句回答读起来通顺。
+  代码本身<b>不会</b>用 invoke 传入的 <code>user_name</code> 去 store 里查偏好。</p>
+</div>
+
+<h2>一、它们分属两个完全独立的“柜子”</h2>
+<table>
+  <tr><th>那一行</th><th>进了哪个容器</th><th>怎么写进去</th><th>工具里怎么读</th></tr>
+  <tr>
+    <td><code>store.put(("users","xiaoming"), "preferences", {...})</code></td>
+    <td>🗄️ <b>store（档案柜）</b>，跨会话共享</td>
+    <td>会话<b>开始前</b>手动 put</td>
+    <td><code>runtime.store.get(("users","xiaoming"), "preferences")</code>
+        —— 命名空间是<b>写死的字面量</b> "xiaoming"</td>
+  </tr>
+  <tr>
+    <td><code>"user_name": "小明"</code>（在 invoke 输入里）</td>
+    <td>🧰 <b>state（白板）</b>，单次运行</td>
+    <td>随<b>每次 invoke 的输入</b>进来</td>
+    <td><code>runtime.state.get("user_name")</code> —— 读的是 state 里那格</td>
+  </tr>
+</table>
+<p>两个容器、两个键、两套读写路径，<b>井水不犯河水</b>。</p>
+
+<h2>二、实验证明：改 user_name，store 读到的不变</h2>
+<div class="code">invoke 输入 user_name = <span class="y">'小明'</span>
+  但工具读 store 用的是写死的命名空间 (users, xiaoming)
+  → 读到 xiaoming 偏好: {'language':'中文','style':'简短','hobby':'天文'}
+
+invoke 输入 user_name = <span class="y">'小美'</span>
+  但工具读 store 用的是写死的命名空间 (users, xiaoming)
+  → 读到 xiaoming 偏好: {'language':'中文','style':'简短','hobby':'天文'}
+<span class="g">结论：store 读到的内容，跟 invoke 传入的 user_name 没有任何程序关联。</span></div>
+<div class="card blue">
+  <p>看实验结果：把 invoke 的 <code>user_name</code> 从“小明”改成“小美”，
+  <b>state 里记录的确实变成小美了，但工具读 store 返回的还是 xiaoming 的偏好</b>——
+  因为工具里 <code>get(("users","xiaoming"), ...)</code> 的 "xiaoming" 是<b>刻在代码里的字符串</b>，
+  它根本不认识 <code>state["user_name"]</code> 这个变量。</p>
+</div>
+
+<h2>三、那为什么 demo 看起来“对得上”？</h2>
+<div class="card green">
+  <p>因为 <code>my_info</code> 工具最后拼那句返回时，是把<b>两个独立来源各取一份</b>拼在一起的：</p>
+  <div class="code"><span class="cm"># 工具返回值：左右手各拿一份，硬拼</span>
+f"白板上的用户名：{state.get('user_name')}；"        <span class="cm"># 来自 state（动态，可能变）</span>
+f"档案柜偏好：语言={item.value['language']}…"          <span class="cm"># 来自 store（写死 xiaoming）</span></div>
+  <p>当两边恰好都写成“小明”时，拼出来读着顺；但那是<b>作者手填的巧合</b>，不是代码逻辑保证的。
+  一旦你改了 invoke 的 user_name 又忘了改 store 的命名空间，就会出现
+  “白板说我是小美，档案柜说我是 xiaoming”的<b>自相矛盾</b>。</p>
+</div>
+
+<h2>四、正确的写法：用身份去“拼”命名空间（把两者真正连上）</h2>
+<div class="card green">
+  <p>真实项目里，store 的命名空间<b>应该用当前用户身份动态拼出来</b>，而不是写死。改法：</p>
+  <div class="code"><span class="cm"># 在工具内部，用 state 里的 user_name 去拼 namespace</span>
+uname = runtime.state.get("user_name")          <span class="cm"># 谁在对话，取谁</span>
+item = runtime.store.get((<span class="y">"users"</span>, uname), <span class="y">"preferences"</span>)  <span class="cm"># 动态 namespace</span>
+<span class="cm"># 这样：invoke 传 user_name="小美" → 就去查 users/小美 的偏好</span></div>
+  <p>或者更稳：用 <code>context.user_id</code>（工牌上的身份证，比 user_name 更可靠）去拼：
+  <code>(("users", runtime.context.user_id), "preferences")</code>——身份（context）定钥匙，偏好（store）按钥匙存取。
+  这才是 store 和身份之间<b>该有的</b>关系。</p>
+</div>
+
+<h2>五、一句话记住</h2>
+<div class="tip">📌 <b>demo 里 xiaoming / 小明 的“对得上”是作者手填的巧合，不是代码逻辑。</b><br>
+📌 它们分属 store（写死命名空间）和 state（随输入）两个独立容器。<br>
+📌 真要关联：在工具里用身份（state.user_name 或 context.user_id）<b>动态拼</b> store 的 namespace。</div>
+
+</body>
+</html>

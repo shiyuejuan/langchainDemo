@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>第63讲 · 同一个 agent 内 state 某个属性的增删改</title>
+<style>
+  :root{
+    --bg:#f6f8fb; --card:#ffffff; --ink:#1f2933; --muted:#5b6b7b;
+    --line:#e3e9f0; --state:#2563eb; --state-bg:#eaf1ff;
+    --ctx:#d9480f; --ctx-bg:#fff1e8; --ok:#0f7b4f; --ok-bg:#e7f6ee;
+    --bad:#c0392b; --bad-bg:#fdecea; --code:#0b2545; --code-bg:#f3f5f9;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:-apple-system,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif;
+    line-height:1.7;padding:28px}
+  .wrap{max-width:960px;margin:0 auto}
+  h1{font-size:24px;margin:0 0 4px}
+  h2{font-size:19px;margin:30px 0 10px;padding-left:10px;border-left:4px solid var(--state)}
+  .sub{color:var(--muted);margin:0 0 18px;font-size:14px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;
+    padding:16px 18px;margin:14px 0;box-shadow:0 1px 2px rgba(20,40,80,.04)}
+  pre{background:var(--code-bg);color:var(--code);border:1px solid var(--line);
+    border-radius:10px;padding:12px 14px;overflow:auto;font-size:13px;
+    font-family:"SF Mono",Menlo,Consolas,monospace;line-height:1.55}
+  code{background:var(--code-bg);padding:1px 6px;border-radius:5px;
+    font-family:"SF Mono",Menlo,Consolas,monospace;font-size:12.5px}
+  .tag{display:inline-block;font-size:12px;font-weight:700;padding:2px 9px;
+    border-radius:20px;margin-right:6px}
+  .t-state{background:var(--state-bg);color:var(--state)}
+  .t-ctx{background:var(--ctx-bg);color:var(--ctx)}
+  .t-ok{background:var(--ok-bg);color:var(--ok)}
+  .t-bad{background:var(--bad-bg);color:var(--bad)}
+  table{border-collapse:collapse;width:100%;font-size:13.5px;margin:6px 0}
+  th,td{border:1px solid var(--line);padding:8px 10px;text-align:left;vertical-align:top}
+  th{background:var(--state-bg);color:var(--state)}
+  .proof{background:var(--ok-bg);border:1px solid #bfe6d2;color:#0c3d28;
+    border-radius:10px;padding:12px 14px;font-size:13px;font-family:"SF Mono",Menlo,monospace}
+  .note{color:var(--muted);font-size:13px}
+  ul{margin:8px 0;padding-left:20px}
+  li{margin:4px 0}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>第63讲 · 同一个 agent 内，state「某个属性」的增删改</h1>
+<p class="sub">文件：<code>63-state-crud-same-agent.py</code>（已实跑验证）｜ 对照：<code>61</code> 课 context 同一 agent 增删改</p>
+
+<div class="card">
+<h2 style="border-color:var(--state);margin-top:6px">直接回答：同一个 agent 内，针对某个属性</h2>
+<table>
+<thead><tr><th>操作</th><th>state 某个属性</th><th>说明</th></tr></thead>
+<tbody>
+<tr><td><b>改值</b></td><td><span class="tag t-ok">✅ 支持</span></td><td><code>Command(update={"属性":值})</code>，<b>跨轮自动记住</b>，且不影响其他属性</td></tr>
+<tr><td><b>增（加新属性）</b></td><td><span class="tag t-bad">❌ 不行</span></td><td>schema 冻结；未声明的键被忽略，不进通道/不进 checkpoint</td></tr>
+<tr><td><b>删（删属性）</b></td><td><span class="tag t-bad">❌ 不行</span></td><td>不能删通道；只能把值覆盖成空，通道定义仍在（由 schema 决定）</td></tr>
+</tbody>
+</table>
+<p>结论和 <b>61 课 context 一模一样</b>：同一 agent 内属性"增删"都不行（根本原因是 <code>state_schema</code> 在编译期冻结，通道定死）。唯一比 context 强的是——<b>state 改完的值会被 checkpoint 记住，context 改完不记住</b>。</p>
+</div>
+
+<h2>实验 setup：一个 agent 对象，挂了 4 个工具</h2>
+<div class="card">
+<pre>class S(MessagesState):          # 同一个 state_schema，声明了 3 条通道
+    user_name: str = ""
+    city: str = ""               # 第二个属性，演示「某个属性」独立改
+    counter: int = 0
+
+agent = create_agent(model=llm,
+    tools=[set_name, set_city, add_field, clear_city],  # 4 个工具都在同一 agent
+    system_prompt="根据用户要求调用对应工具...",
+    state_schema=S, checkpointer=InMemorySaver())
+
+# add_field 尝试写未声明的 vip；clear_city 把 city 覆盖成空</pre>
+<p class="note">关键：所有工具都挂在<b>同一个 agent 对象</b>上，且共享<b>同一个 state_schema S</b>。下面三个实验只是用不同 thread_id 触发不同工具。</p>
+</div>
+
+<h2>① 同一 agent 内【改某个属性的值】—— 且记住、且多属性独立</h2>
+<div class="card">
+<pre># 同一 thread t1，先改 user_name，再改 city（中间没再调 set_name）
+r1 = run("t1", "调用 set_name 工具")   # user_name=明明
+r2 = run("t1", "调用 set_city 工具")    # city=北京</pre>
+<div class="proof">实跑输出：
+调 set_name 后: user_name= '明明' | city= '&lt;未写入&gt;'
+再调 set_city 后: user_name= '明明' | city= '北京'
+  ← user_name 仍是明明(记住)，city=北京(新改)，两属性独立
+checkpoint 里两条通道都在: True 和 True</div>
+<p>三点铁证：① <b>改值成功</b>（city 从空变北京）；② <b>跨轮记住</b>（第2次 invoke 没调 set_name，但 user_name 还是明明）；③ <b>多属性互不干扰</b>（改 city 没把 user_name 冲掉）。这是 context 做不到的——context 第2次不传就变 None。</p>
+</div>
+
+<h2>② 同一 agent 内【增】一个未声明的属性 —— 被忽略</h2>
+<div class="card">
+<pre>@tool
+def add_field(q, runtime):
+    return Command(update={
+        "messages": [ToolMessage(..., tool_call_id=runtime.tool_call_id)],
+        "vip": "yes",     # ← 未在 class S 声明
+    })</pre>
+<div class="proof">实跑输出：
+返回值里有 vip 吗: False
+checkpoint channel_values 键: ['messages', '__pregel_tasks']
+  → vip 既不在返回值也不在 checkpoint（写了等于白写）</div>
+<p class="note">注：上面 channel_values 只有 <code>messages</code> 和内部用的 <code>__pregel_tasks</code>，是因为 t2 线程只调了 add_field（写 vip 被忽略），从未写过 city/user_name；<b>写过之后自定义字段会出现在 channel_values</b>（56/58 课已证）。结论只针对"未声明键"：<b>被忽略</b>。</p>
+<p>想要"多一个属性"，只能在 <code>class S</code> 里加一行（设计期），然后<b>重建 agent</b>——那就不是"运行时同一 agent 增属性"了。</p>
+</div>
+
+<h2>③ 同一 agent 内【删】某个属性 —— 只能覆盖值，不能删通道</h2>
+<div class="card">
+<pre>@tool
+def clear_city(q, runtime):
+    return Command(update={
+        "messages": [ToolMessage(..., tool_call_id=runtime.tool_call_id)],
+        "city": "",     # 覆盖成空，不是删除通道
+    })</pre>
+<div class="proof">实跑输出：
+先设 city: '北京'
+再 clear_city 后 city= ''
+通道 city 还在吗: True  ← 删的是"值"，通道定义还在（由 schema 决定）</div>
+<p>想真正"删掉 city 这个属性"？运行时做不到：<code>runtime.state</code> 是只读快照不能 <code>del</code>；唯一正道是改类定义删掉那行 + 重建 agent（设计期）。</p>
+</div>
+
+<h2>④ 一张表看全：同一 agent 内，state 属性 vs context 属性</h2>
+<div class="card">
+<table>
+<thead><tr><th>操作</th><th><span class="tag t-state">state 属性</span></th><th><span class="tag t-ctx">context 属性</span></th></tr></thead>
+<tbody>
+<tr><td><b>改值</b></td><td><span class="tag t-ok">✅</span> 记住 + 多属性独立</td><td><span class="tag t-ok">✅</span> 但不记住（下次重传）</td></tr>
+<tr><td><b>增属性</b></td><td><span class="tag t-bad">❌</span> 未声明键被忽略</td><td><span class="tag t-bad">❌</span> 不进 schema，换实例即消失（61）</td></tr>
+<tr><td><b>删属性</b></td><td><span class="tag t-bad">❌</span> 只能覆盖值，通道不消失</td><td><span class="tag t-bad">⚠️</span> 别 del 已声明字段，会崩（61）</td></tr>
+<tr><td><b>根因</b></td><td colspan="2" style="text-align:center">两者 <b>schema 都在编译期冻结</b>：state 字段=通道、context 字段=对象属性，运行时都不能增删</td></tr>
+<tr><td><b>唯一差别</b></td><td>值进 checkpoint，跨轮记住</td><td>值不进 checkpoint，不记住</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="card">
+<h2 style="border-color:var(--state);margin-top:6px">小结</h2>
+<ul>
+<li><b>同一个 agent 内，state 某个属性：改值✅、增❌、删❌。</b>增删被"schema 冻结"挡住，和 context 同一道墙。</li>
+<li>state 比 context 强在<b>改完会被记住</b>：同一 thread_id 下次 invoke 还能读到，且多个属性各自独立互不冲掉。</li>
+<li>真要"加/删一个属性"只能<b>改类定义 + 重建 agent</b>（设计期），这不算"运行时同一 agent 增删"。</li>
+<li>需要<b>运行时动态键值 + 跨会话长期记住</b> → 那是 <b>store</b> 的活儿（put/get/delete，47/48/49 课），state/context 都不擅长。</li>
+</ul>
+<p class="note">下一步可选：① SqliteSaver 磁盘持久化（接 57 流程图）② Summarization 压缩历史 ③ store 长期记忆实战。说一个我接着讲。</p>
+</div>
+
+</div>
+</body>
+</html>

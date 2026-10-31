@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>42 ｜ after_model 之后还会执行 wrap_model_call 吗？</title>
+<style>
+  body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;margin:0;
+       background:#f5f7fa;color:#1f2933;line-height:1.7;}
+  .wrap{max-width:980px;margin:0 auto;padding:32px 24px 64px;}
+  h1{font-size:26px;margin:0 0 4px;}
+  .sub{color:#647084;margin:0 0 28px;font-size:14px;}
+  .card{background:#fff;border-radius:14px;padding:24px 26px;margin:22px 0;
+        box-shadow:0 2px 10px rgba(31,41,51,.06);}
+  .card h2{font-size:18px;margin:0 0 14px;color:#2563eb;}
+  svg{display:block;width:100%;height:auto;}
+  .orderline{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px;
+        background:#0f172a;color:#e2e8f0;padding:14px 16px;border-radius:10px;
+        white-space:pre;overflow-x:auto;}
+  .bm{color:#93c5fd;} .wm{color:#60a5fa;} .am{color:#fbbf24;} .wt{color:#34d399;}
+  .take{background:#fff7ed;border-left:4px solid #f59e0b;padding:12px 16px;
+        border-radius:0 8px 8px 0;margin:16px 0;font-size:14px;}
+  table{border-collapse:collapse;width:100%;font-size:14px;margin-top:6px;}
+  th,td{border:1px solid #e3e8ef;padding:8px 10px;text-align:left;vertical-align:top;}
+  th{background:#f0f4ff;color:#334155;}
+  code{background:#eef2f7;padding:1px 6px;border-radius:5px;font-size:13px;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>after_model 之后还会执行 wrap_model_call 吗？</h1>
+  <p class="sub">第 12 讲 · 模型节点内部慢动作 · 结论：不会</p>
+
+  <div class="card">
+    <h2>① 模型节点内部：wrap 是壳，after_model 在壳外</h2>
+    <svg viewBox="0 0 720 470" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <marker id="arr" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+          <path d="M0,0 L8,3 L0,6 Z" fill="#94a3b8"/>
+        </marker>
+      </defs>
+
+      <!-- 模型节点大框 -->
+      <rect x="190" y="28" width="340" height="232" rx="14" fill="#dbeafe" stroke="#3b82f6" stroke-width="2"/>
+      <text x="206" y="50" font-size="13" font-weight="bold" fill="#1d4ed8">模型节点</text>
+
+      <!-- before_model 条 -->
+      <rect x="208" y="60" width="304" height="26" rx="6" fill="#bfdbfe"/>
+      <text x="218" y="78" font-size="12" fill="#1e40af">before_model（节点开始）</text>
+
+      <!-- wrap 壳 -->
+      <rect x="216" y="96" width="288" height="112" rx="10" fill="#93c5fd" stroke="#2563eb" stroke-width="1.5"/>
+      <text x="226" y="116" font-size="12" fill="#1e3a8a">wrap_model_call ▶ 进</text>
+      <rect x="240" y="124" width="240" height="30" rx="6" fill="#60a5fa"/>
+      <text x="360" y="144" font-size="11" fill="#0c2d6b" text-anchor="middle">…真正调 LLM…</text>
+      <text x="498" y="198" font-size="12" fill="#1e3a8a" text-anchor="end">wrap_model_call ◀ 出</text>
+
+      <!-- after_model 条 -->
+      <rect x="208" y="220" width="304" height="26" rx="6" fill="#bfdbfe"/>
+      <text x="218" y="238" font-size="12" fill="#1e40af">after_model（节点收尾，在壳外）</text>
+
+      <!-- after_model 之后说明 -->
+      <line x1="360" y1="260" x2="360" y2="288" stroke="#94a3b8" stroke-width="2" marker-end="url(#arr)"/>
+      <text x="372" y="278" font-size="12" fill="#475569">after_model 之后：节点结束，本段无 wrap</text>
+
+      <!-- 三个去向 -->
+      <rect x="40" y="300" width="180" height="74" rx="10" fill="#d1fae5" stroke="#10b981" stroke-width="1.5"/>
+      <text x="56" y="324" font-size="12" fill="#047857">工具节点</text>
+      <text x="56" y="344" font-size="11" fill="#064e3b">（wrap_tool_call 包裹）</text>
+      <text x="56" y="362" font-size="11" fill="#064e3b">独立的一套洋葱</text>
+
+      <rect x="300" y="300" width="120" height="74" rx="10" fill="#fee2e2" stroke="#ef4444" stroke-width="1.5"/>
+      <text x="316" y="334" font-size="12" fill="#b91c1c">结束（end）</text>
+      <text x="316" y="356" font-size="11" fill="#991b1b">不再进任何节点</text>
+
+      <rect x="500" y="300" width="180" height="74" rx="10" fill="#dbeafe" stroke="#3b82f6" stroke-width="1.5"/>
+      <text x="516" y="324" font-size="12" fill="#1d4ed8">下一轮模型节点</text>
+      <text x="516" y="344" font-size="11" fill="#1e40af">从「新的」before_model</text>
+      <text x="516" y="362" font-size="11" fill="#1e40af">开头，不是紧接 after</text>
+
+      <!-- 分支连线 -->
+      <path d="M360 292 L130 300" fill="none" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arr)"/>
+      <path d="M360 292 L360 300" fill="none" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arr)"/>
+      <path d="M360 292 L590 300" fill="none" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arr)"/>
+
+      <!-- 底部提示 -->
+      <rect x="40" y="404" width="640" height="48" rx="8" fill="#fef3c7"/>
+      <text x="56" y="428" font-size="12" fill="#92400e">关键：wrap_model_call 包的是「LLM 调用那一刻」。它进/出都夹在 before_model 之后、</text>
+      <text x="56" y="446" font-size="12" fill="#92400e">after_model 之前。after_model 之后若再来一轮模型，那是「新一轮」重新从 before_model 起，</text>
+    </svg>
+    <div class="take">
+      <b>一句话：</b>同一个模型调用里，<code>after_model</code> 之后<b>不会</b>再执行一次 <code>wrap_model_call</code>。
+      wrap 的"拆壳"（◀ 出）发生在 <code>after_model</code> 之前。下一轮模型节点会有"新的" wrap，但那是新一轮，不是紧接 after 的同一段。
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>② 实跑输出（慢动作，每轮标注）</h2>
+    <div class="orderline"><span class="bm">【before_model】</span>   ← 模型节点开始
+  <span class="wm">【wrap_model_call ▶ 进】</span>  ← 包住 LLM 调用
+    <span class="wm">【wrap_model_call ◀ 出】</span>  ← 拆壳（在 after_model 之前）
+  <span class="am">【after_model】</span>   ← 模型节点收尾
+  <span class="wt">【wrap_tool_call ▶ 进】</span>
+  <span class="wt">【wrap_tool_call ◀ 出】</span>
+<span class="bm">【before_model】</span>   ← 第②轮模型节点开始（新的 wrap 在这之后）
+  <span class="wm">【wrap_model_call ▶ 进】</span>
+  <span class="wm">【wrap_model_call ◀ 出】</span>
+  <span class="am">【after_model】</span></div>
+    <p style="font-size:13px;color:#647084;">注意：after_model（黄色）之后直接进入工具节点（绿色），中间没有任何 wrap_model_call；
+       第②轮的 wrap 是在"下一个 before_model"之后才出现的。</p>
+  </div>
+
+  <div class="card">
+    <h2>③ 三句话记住</h2>
+    <table>
+      <tr><th>要点</th><th>说明</th></tr>
+      <tr><td>wrap 包的是"调用本身"</td><td><code>wrap_model_call</code> 把这一次 LLM 调用整个包进壳里：进→真调用→出，三段连在一起</td></tr>
+      <tr><td>after_model 在壳外</td><td>顺序固定为 before_model → 壳(进/真调/出) → after_model；<b>出 比 after 早</b></td></tr>
+      <tr><td>下一轮=重新开始</td><td>after_model 之后若还需调模型，是<b>新的一轮</b>从 before_model 起，不是 after 后紧接再跑一次 wrap</td></tr>
+    </table>
+  </div>
+</div>
+</body>
+</html>

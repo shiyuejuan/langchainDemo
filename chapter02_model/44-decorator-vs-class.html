@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>44 ｜ 5.5 装饰器和类的选择</title>
+<style>
+  body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;margin:0;
+       background:#f5f7fa;color:#1f2933;line-height:1.7;}
+  .wrap{max-width:980px;margin:0 auto;padding:32px 24px 64px;}
+  h1{font-size:26px;margin:0 0 4px;}
+  .sub{color:#647084;margin:0 0 28px;font-size:14px;}
+  .card{background:#fff;border-radius:14px;padding:24px 26px;margin:22px 0;
+        box-shadow:0 2px 10px rgba(31,41,51,.06);}
+  .card h2{font-size:18px;margin:0 0 14px;color:#2563eb;}
+  svg{display:block;width:100%;height:auto;}
+  pre{background:#0f172a;color:#e2e8f0;padding:14px 16px;border-radius:10px;
+      font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;
+      overflow-x:auto;white-space:pre;}
+  .c{color:#7c8aa0;} .n{color:#60a5fa;} .g{color:#34d399;} .y{color:#fbbf24;}
+  .take{background:#fff7ed;border-left:4px solid #f59e0b;padding:12px 16px;
+        border-radius:0 8px 8px 0;margin:16px 0;font-size:14px;}
+  table{border-collapse:collapse;width:100%;font-size:14px;margin-top:6px;}
+  th,td{border:1px solid #e3e8ef;padding:8px 10px;text-align:left;vertical-align:top;}
+  th{background:#f0f4ff;color:#334155;}
+  code{background:#eef2f7;padding:1px 6px;border-radius:5px;font-size:13px;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>5.5 装饰器和类的选择</h1>
+  <p class="sub">第 14 讲 · 决策指南 · 两种写法功能等价，选型看需求</p>
+
+  <div class="card">
+    <h2>① 决策树：三个问题定写法</h2>
+    <svg viewBox="0 0 720 490" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <marker id="arr" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+          <path d="M0,0 L8,3 L0,6 Z" fill="#94a3b8"/>
+        </marker>
+      </defs>
+
+      <!-- 起点 -->
+      <rect x="200" y="16" width="280" height="40" rx="10" fill="#e0e7ff" stroke="#6366f1" stroke-width="1.5"/>
+      <text x="340" y="41" font-size="13" fill="#3730a3" text-anchor="middle">要写一个中间件</text>
+
+      <line x1="340" y1="56" x2="340" y2="84" stroke="#94a3b8" stroke-width="2" marker-end="url(#arr)"/>
+
+      <!-- Q1 -->
+      <rect x="200" y="88" width="280" height="44" rx="10" fill="#fef9c3" stroke="#ca8a04" stroke-width="1.5"/>
+      <text x="340" y="115" font-size="12.5" fill="#713f12" text-anchor="middle">① 需要跨调用状态？（计数/缓存）</text>
+      <line x1="480" y1="110" x2="556" y2="182" stroke="#94a3b8" stroke-width="2" marker-end="url(#arr)"/>
+      <text x="500" y="140" font-size="12" fill="#16a34a">是</text>
+
+      <line x1="340" y1="132" x2="340" y2="160" stroke="#94a3b8" stroke-width="2" marker-end="url(#arr)"/>
+      <text x="348" y="152" font-size="12" fill="#647084">否</text>
+
+      <!-- Q2 -->
+      <rect x="200" y="164" width="280" height="44" rx="10" fill="#fef9c3" stroke="#ca8a04" stroke-width="1.5"/>
+      <text x="340" y="191" font-size="12.5" fill="#713f12" text-anchor="middle">② 多个钩子要共享逻辑/配置？</text>
+      <line x1="480" y1="186" x2="556" y2="196" stroke="#94a3b8" stroke-width="2" marker-end="url(#arr)"/>
+      <text x="500" y="182" font-size="12" fill="#16a34a">是</text>
+
+      <line x1="340" y1="208" x2="340" y2="236" stroke="#94a3b8" stroke-width="2" marker-end="url(#arr)"/>
+      <text x="348" y="228" font-size="12" fill="#647084">否</text>
+
+      <!-- Q3 -->
+      <rect x="200" y="240" width="280" height="44" rx="10" fill="#fef9c3" stroke="#ca8a04" stroke-width="1.5"/>
+      <text x="340" y="267" font-size="12.5" fill="#713f12" text-anchor="middle">③ 要做成可复用组件/发布？</text>
+      <line x1="480" y1="262" x2="556" y2="212" stroke="#94a3b8" stroke-width="2" marker-end="url(#arr)"/>
+      <text x="500" y="248" font-size="12" fill="#16a34a">是</text>
+
+      <line x1="340" y1="284" x2="340" y2="312" stroke="#94a3b8" stroke-width="2" marker-end="url(#arr)"/>
+      <text x="348" y="304" font-size="12" fill="#647084">都否</text>
+
+      <!-- 类 box（右侧） -->
+      <rect x="560" y="150" width="150" height="92" rx="10" fill="#dbeafe" stroke="#3b82f6" stroke-width="2"/>
+      <text x="635" y="188" font-size="14" font-weight="bold" fill="#1d4ed8" text-anchor="middle">用 类</text>
+      <text x="635" y="212" font-size="11" fill="#1e40af" text-anchor="middle">self 持状态 / 打包复用</text>
+
+      <!-- 装饰器 box（底部） -->
+      <rect x="200" y="316" width="280" height="56" rx="10" fill="#dcfce7" stroke="#16a34a" stroke-width="2"/>
+      <text x="340" y="340" font-size="14" font-weight="bold" fill="#166534" text-anchor="middle">用装饰器（轻量首选）</text>
+      <text x="340" y="360" font-size="11" fill="#14532d" text-anchor="middle">@wrap_model_call 单行搞定</text>
+
+      <!-- 底部说明 -->
+      <rect x="40" y="400" width="640" height="76" rx="8" fill="#f1f5f9" stroke="#94a3b8" stroke-width="1"/>
+      <text x="56" y="424" font-size="12" fill="#334155">· 装饰器本质 = 自动生成 AgentMiddleware 子类（语法糖），两者可混用</text>
+      <text x="56" y="444" font-size="12" fill="#334155">· middleware=[装饰器实例, MyClass(...)] 列表里同时放没问题</text>
+      <text x="56" y="464" font-size="12" fill="#334155">· name 判重：函数名天然唯一；类要多实例必须重写 name property</text>
+    </svg>
+    <div class="take">
+      <b>口诀：</b>问自己三个问题——要状态吗？多钩子共享吗？要复用吗？<b>有一个"是"就用类</b>；全"否"就用装饰器，一行搞定。
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>② 同一个"计数日志"中间件的两种写法（实跑对照）</h2>
+    <pre><span class="c"># 方式A 装饰器 —— 没有 self，状态只能靠闭包"凑"（能跑但别扭）</span>
+<span class="k">def</span> make_decorator_mw(label):
+    calls = {<span class="s">"n"</span>: 0}                      <span class="c"># 闭包变量冒充状态</span>
+    <span class="y">@wrap_model_call</span>
+    <span class="k">def</span> counting_mw(request, handler):
+        calls[<span class="s">"n"</span>] += 1
+        <span class="k">print</span>(<span class="s">f"[{label}·装饰器] 第 {calls['n']} 次"</span>)
+        <span class="k">return</span> handler(request)
+    <span class="k">return</span> counting_mw
+
+<span class="c"># 方式B 类 —— self 天然持状态，还能多钩子共享</span>
+<span class="k">class</span> CountingMW(AgentMiddleware):
+    <span class="k">def</span> __init__(self, label):
+        super().__init__()
+        self.label = label
+        self.calls = 0                    <span class="c"># self 就是状态</span>
+        self.model_starts = 0             <span class="c"># 供其他钩子共享</span>
+    <span class="k">@property</span>
+    <span class="k">def</span> name(self): <span class="k">return</span> <span class="s">f"CountingMW-{self.label}"</span>
+    <span class="k">def</span> before_model(self, state, runtime):     <span class="c"># 共享 self</span>
+        self.model_starts += 1
+    <span class="k">def</span> wrap_model_call(self, request, handler):
+        self.calls += 1
+        <span class="k">print</span>(<span class="s">f"[{self.label}·类] 第 {self.calls} 次（进入 {self.model_starts} 次）"</span>)
+        <span class="k">return</span> handler(request)</pre>
+    <pre><span class="c"># 实跑输出（两版功能完全等价）</span>
+  [A·装饰器] 第 <span class="n">1</span> 次调模型（状态靠闭包凑）
+  [A·装饰器] 第 <span class="n">2</span> 次调模型（状态靠闭包凑）
+  [B·类] 第 <span class="n">1</span> 次调模型（节点进入 <span class="n">1</span> 次，self 共享）
+  [B·类] 第 <span class="n">2</span> 次调模型（节点进入 <span class="n">2</span> 次，self 共享）</pre>
+  </div>
+
+  <div class="card">
+    <h2>③ 选型对照表</h2>
+    <table>
+      <tr><th>场景</th><th>推荐写法</th><th>原因</th></tr>
+      <tr><td>一次性日志/监控，单钩子</td><td><b>装饰器</b></td><td>单行搞定，函数名天然唯一免判重坑</td></tr>
+      <tr><td>要计数/缓存/配置等跨调用状态</td><td><b>类</b></td><td><code>self</code> 直接存，不用闭包凑</td></tr>
+      <tr><td>before_model + wrap + after_model 联动</td><td><b>类</b></td><td>多钩子共享同一个 <code>self</code></td></tr>
+      <tr><td>做成生产组件（限流/降级/重试包装）</td><td><b>类</b></td><td>参数进 <code>__init__</code>，可复用可测试</td></tr>
+      <tr><td>课程 demo / 快速实验</td><td><b>装饰器</b></td><td>最少代码直达目的</td></tr>
+      <tr><td>同类多实例（如 35 课外层/内层）</td><td>类（重写 name）/ 装饰器多函数</td><td>name 判重：类名默认重复会报错</td></tr>
+    </table>
+    <div class="take">
+      <b>本课程系列全景：</b>37 函数钩子 → 38 类钩子规则 → 40 函数式 wrap → 43 类式 wrap →
+      <b>44（本课）选型收口</b>。中间件家族全部讲完，下一站可以进 HITL / Summarization / 生产组合实战。
+    </div>
+  </div>
+</div>
+</body>
+</html>

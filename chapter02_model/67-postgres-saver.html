@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>67 · PostgresSaver：把对话存进 PostgreSQL</title>
+<style>
+  :root{
+    --bg:#0f172a; --card:#1e293b; --line:#334155; --txt:#e2e8f0; --mut:#94a3b8;
+    --blue:#38bdf8; --green:#34d399; --orange:#fbbf24; --red:#f87171; --purple:#c084fc;
+  }
+  body{margin:0;background:var(--bg);color:var(--txt);
+    font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;line-height:1.7;padding:28px;}
+  h1{color:#fff;font-size:24px;border-left:6px solid var(--blue);padding-left:12px;margin-bottom:6px}
+  .sub{color:var(--mut);margin:0 0 22px 18px;font-size:14px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px 20px;margin:16px 0}
+  .card h2{color:var(--blue);font-size:18px;margin:0 0 10px}
+  code{background:#0b1220;border:1px solid var(--line);border-radius:5px;padding:1px 6px;color:var(--green);font-size:13px}
+  pre{background:#0b1220;border:1px solid var(--line);border-radius:8px;padding:14px;overflow-x:auto;font-size:13px;color:#cbd5e1}
+  .ev{background:#0b1220;border-left:4px solid var(--green);padding:10px 14px;border-radius:6px;margin:8px 0;font-family:ui-monospace,Menlo,monospace;font-size:13px;color:var(--green)}
+  table{border-collapse:collapse;width:100%;margin:10px 0;font-size:14px}
+  th,td{border:1px solid var(--line);padding:8px 10px;text-align:left}
+  th{background:#0b1220;color:var(--blue)}
+  .pill{display:inline-block;padding:2px 10px;border-radius:999px;font-size:12px;font-weight:600}
+  .p-blue{background:rgba(56,189,248,.15);color:var(--blue)}
+  .p-green{background:rgba(52,211,153,.15);color:var(--green)}
+  .p-orange{background:rgba(251,191,36,.15);color:var(--orange)}
+  .p-red{background:rgba(248,113,113,.15);color:var(--red)}
+  .note{color:var(--mut);font-size:13px}
+  .flow{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:12px 0}
+  .box{padding:10px 14px;border-radius:8px;font-size:13px;border:1px solid var(--line)}
+  .b-ram{background:rgba(56,189,248,.12);border-color:var(--blue)}
+  .b-disk{background:rgba(52,211,153,.12);border-color:var(--green)}
+  .b-key{background:rgba(251,191,36,.12);border-color:var(--orange)}
+  .arrow{color:var(--mut);font-size:18px}
+</style>
+</head>
+<body>
+<h1>67 · PostgresSaver：把对话存进 PostgreSQL</h1>
+<p class="sub">接 66 课（SqliteSaver）。本课把 checkpointer 后端从 SQLite 换成 PostgreSQL，证明"换一个后端只改一行代码"。全部实跑验证。</p>
+
+<div class="card">
+  <h2>一、为什么学这一课</h2>
+  <p>66 课我们用 <code>SqliteSaver</code> 把短期记忆落进单文件 SQLite，进程重启也不丢。但 SQLite 单文件在高并发下会锁库。生产环境常用 <strong>PostgreSQL</strong> 做 checkpointer——并发强、可多机共享。本课目标：把 66 课的 demo 换成 Postgres 后端，看"改了多少"。</p>
+  <div class="flow">
+    <span class="box b-ram">State(白板)</span><span class="arrow">→</span>
+    <span class="box b-key">Checkpointer 留住</span><span class="arrow">→</span>
+    <span class="box b-disk">PostgreSQL(磁盘·可并发)</span><span class="arrow">←</span>
+    <span class="box b-key">thread_id 钥匙</span>
+  </div>
+  <p class="note">66 课是"短期记忆落单文件"，本课是"短期记忆落数据库"——职责一样，只是后备从 SQLite 升到 PostgreSQL。</p>
+</div>
+
+<div class="card">
+  <h2>二、环境准备（本课已为你装好）</h2>
+  <table>
+    <tr><th>组件</th><th>做法</th><th>结果</th></tr>
+    <tr><td>PostgreSQL 服务</td><td>下载 EDB 官方二进制 16.4 → initdb → pg_ctl 启动（端口 5432）</td><td><span class="pill p-green">已跑在 localhost:5432</span></td></tr>
+    <tr><td>库 + 角色</td><td>建 <code>langchain</code> 库，owner=<code>langchain</code>/密码<code>langchain</code></td><td><span class="pill p-green">已建好</span></td></tr>
+    <tr><td>Python 包</td><td><code>pip install langgraph-checkpoint-postgres</code>（含 psycopg 3）</td><td><span class="pill p-green">3.2.0 已装</span></td></tr>
+  </table>
+  <p class="note">坑记录：psycopg 3 需要 libpq 客户端库，装 <code>psycopg-binary</code> 自带 libpq 即可，不用动系统库（强行给 <code>DYLD_LIBRARY_PATH</code> 塞整个 pg/lib 会和系统 libiconv 冲突，macOS 经典坑）。</p>
+</div>
+
+<div class="card">
+  <h2>三、和 66 课（SqliteSaver）的唯一区别：一行</h2>
+  <pre>SQLite 版(66):  with SqliteSaver.from_conn_string("checkpoints.sqlite") as saver:
+Postgres 版(67): with PostgresSaver.from_conn_string(
+                      "postgresql://langchain:langchain@localhost:5432/langchain") as saver:
+                      saver.setup()   # ← Postgres 多这一步：首次建表（幂等）</pre>
+  <p>state、自定义字段 <code>counter</code>、工具 <code>bump</code>、系统提示、<code>thread_id</code> —— <strong>全部一字未改</strong>。因为 <code>SqliteSaver</code> 和 <code>PostgresSaver</code> 都是 <code>BaseCheckpointSaver</code> 的子类，接口完全一致。</p>
+  <p><span class="pill p-orange">注意</span> Postgres 版本多一个 <code>saver.setup()</code>：首次必须建表（创建 <code>checkpoints</code>/<code>checkpoint_writes</code>/<code>checkpoint_blobs</code>/<code>checkpoint_migrations</code> 四张表），幂等，之后调用会跳过。</p>
+</div>
+
+<div class="card">
+  <h2>四、实跑输出（进程重启后记忆还在）</h2>
+  <div class="ev">阶段一: thread=t1 连问 3 次 → counter = 1 → 2 → 3
+
+阶段二(模拟重启: 全新 saver2 + 全新 agent2, 打开同一 PostgreSQL 库):
+  重启后未做任何 invoke, 直接读 t1 → counter = 3
+  第 4 次 invoke 后 → counter = 4  ← 从 3 接着到 4，记忆没丢</div>
+  <p>对照组（和 66 课同逻辑）：如果换成全新 <code>InMemorySaver</code> 读同一线程，会是 <code>None</code>——因为内存里啥都没有；而 Postgres 里数据一直在。</p>
+</div>
+
+<div class="card">
+  <h2>五、直接看 PostgreSQL 里的真实表</h2>
+  <div class="ev">\dt
+ Schema |         Name          | Type  |   Owner
+--------+-----------------------+-------+-----------
+ public | checkpoint_blobs      | table | langchain
+ public | checkpoint_migrations | table | langchain
+ public | checkpoint_writes     | table | langchain
+ public | checkpoints           | table | langchain
+
+SELECT thread_id, count(*) FROM checkpoints GROUP BY thread_id;
+ thread_id | rows
+-----------+------
+ t1        |   20</div>
+  <p>四张表就是 langgraph 存短期记忆的地方；<code>t1</code> 线程 20 条记录（和 66 课 SQLite 里数量一致，证明结构相同只是换了发动机）。</p>
+</div>
+
+<div class="card">
+  <h2>六、关键对比</h2>
+  <table>
+    <tr><th>Checkpointer</th><th>后端</th><th>适用</th><th>进程重启</th><th>并发</th></tr>
+    <tr><td><code>InMemorySaver</code></td><td>内存 RAM</td><td>临时/演示</td><td><span class="pill p-red">全丢</span></td><td>仅单进程</td></tr>
+    <tr><td><code>SqliteSaver</code>(66)</td><td>单文件 .sqlite</td><td>单机小项目</td><td><span class="pill p-green">不丢</span></td><td>易锁库</td></tr>
+    <tr><td><code>PostgresSaver</code>(本课)</td><td>PostgreSQL</td><td>生产/高并发</td><td><span class="pill p-green">不丢</span></td><td><span class="pill p-green">强</span></td></tr>
+  </table>
+  <p>三者都是 <code>BaseCheckpointSaver</code>，<strong>切换只改构造那一行 + Postgres 多一个 setup()</strong>。这就是 langgraph 把"存哪"和"怎么跑"解耦的好处。</p>
+  <p class="note">一个区分：checkpointer（含 Postgres）解决的是"<strong>同一线程的短期历史别因重启/多机而丢</strong>"；而"跨所有会话长期记住某人偏好"是 <strong>store</strong> 的活儿（47/65 课）。两者常配合：checkpointer 记对话、store 记长期档案。</p>
+</div>
+
+<div class="card">
+  <h2>七、一句话总结</h2>
+  <p>把 66 课的 <code>SqliteSaver</code> 换成 <code>PostgresSaver</code>，<strong>只有一行 URI 变了</strong>，业务逻辑完全复用，记忆照样落盘、重启续命。生产里选 Postgres 是因为它扛并发、可多机共享——这就是"短期记忆持久化"从玩具到生产的那一步。</p>
+  <p class="note">文件：<code>67-postgres-saver-demo.py</code> 可直接 <code>python3 67-postgres-saver-demo.py</code> 跑（需 PostgreSQL 服务在跑）。</p>
+</div>
+</body>
+</html>

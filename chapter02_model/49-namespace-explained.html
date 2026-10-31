@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>49 · namespace 人话版：它就是"文件夹路径"</title>
+<style>
+  body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+         max-width: 880px; margin: 0 auto; padding: 28px 20px; color: #1e293b; line-height: 1.85; background: #f8fafc; }
+  h1 { font-size: 24px; border-bottom: 3px solid #059669; padding-bottom: 10px; }
+  h2 { font-size: 19px; margin-top: 32px; color: #047857; }
+  .code { background: #0f172a; color: #e2e8f0; padding: 16px 18px; border-radius: 10px;
+          overflow-x: auto; font-size: 13.5px; line-height: 1.7; font-family: "SF Mono", Menlo, monospace; }
+  .code .cm { color: #64748b; } .code .y { color: #fde047; }
+  .card { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px 22px; margin: 16px 0; }
+  .green { border-left: 5px solid #059669; }
+  .amber { border-left: 5px solid #d97706; }
+  table { border-collapse: collapse; width: 100%; margin: 14px 0; background: #fff; font-size: 14px; }
+  th, td { border: 1px solid #cbd5e1; padding: 8px 12px; text-align: left; }
+  th { background: #ecfdf5; }
+  code { background: #eef2ff; color: #3730a3; padding: 1px 6px; border-radius: 4px; font-size: 13px; }
+  .tree { background:#fff; border:1px dashed #94a3b8; border-radius:10px; padding:14px 18px;
+          font-family:"SF Mono", Menlo, monospace; font-size:13.5px; line-height:1.9; }
+</style>
+</head>
+<body>
+
+<h1>49 · namespace 人话版：它就是"文件夹路径"</h1>
+
+<div class="card green">
+  <p style="margin:4px 0">一句话：<b>namespace 就是你给档案柜里每份文件写的"存放地址"——一个多级文件夹路径。</b>
+  元组的每一项就是路径的一级。</p>
+</div>
+
+<h2>把 ("users", "xiaoming") 翻译成文件夹</h2>
+<div class="tree">
+档案柜（store）<br>
+└── <b>users/</b>              ← 元组第 1 项：一级文件夹（放"实体类型"）<br>
+&nbsp;&nbsp;&nbsp;&nbsp;├── <b>xiaoming/</b>      ← 元组第 2 项：二级文件夹（具体是谁）<br>
+&nbsp;&nbsp;&nbsp;&nbsp;│&nbsp;&nbsp;&nbsp;└── preferences  ← key：文件名<br>
+&nbsp;&nbsp;&nbsp;&nbsp;│&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;内容：{"language":"中文", ...}   ← value：文件内容<br>
+&nbsp;&nbsp;&nbsp;&nbsp;└── <b>xiaohong/</b><br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;└── preferences<br>
+└── <b>teams/</b>             ← 换一类实体，另起一级<br>
+&nbsp;&nbsp;&nbsp;&nbsp;└── alpha/<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;└── reports/<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;└── q3
+</div>
+
+<p>所以 <code>put(("users","xiaoming"), "preferences", {...})</code> 读出来就是一句人话：
+<b>"把这份偏好存到 users 文件夹下 xiaoming 子文件夹里，文件名叫 preferences。"</b></p>
+
+<h2>"元组长度自由"是什么意思？（10 秒实验已证）</h2>
+<p>路径想分几级就分几级，1 级、2 级、3 级都能存能取：</p>
+<div class="code">s.put(<span class="y">('users',)</span>,                          'counter', {'n': 1})     <span class="cm"># 1 级路径</span>
+s.put(<span class="y">('users','xiaoming')</span>,                'prefs',   {'lang':'中文'}) <span class="cm"># 2 级</span>
+s.put(<span class="y">('teams','alpha','reports')</span>,          'q3',      {'rev':'ok'})    <span class="cm"># 3 级</span>
+<span class="cm"># 三个全部 put/get 成功 ✓</span></div>
+<p>分几级由<b>你的业务</b>定：只分用户 → 2 级够；多租户系统 → (<code>"租户A"</code>, <code>"users"</code>, <code>"u1"</code>) 3 级；全局配置 → 1 级。</p>
+
+<h2>为什么要"前缀查询"？（这是元组最值钱的功能）</h2>
+<p>因为 namespace 是分级的，<code>search</code> 可以<b>只给路径前几级</b>，把这一片全捞出来——像 <code>ls</code> 一个目录：</p>
+<table>
+  <tr><th>你写</th><th>人话</th><th>实验结果</th></tr>
+  <tr><td><code>search(("users",))</code></td><td>users/ 这个一级文件夹下<b>所有</b>子文件夹的所有文件</td><td>捞到 ('users',)counter 和 ('users','xiaoming')prefs 两条 ✓</td></tr>
+  <tr><td><code>search(("users","xiaoming"))</code></td><td>只看 xiaoming/ 这个子文件夹</td><td>只捞到他的 prefs ✓</td></tr>
+  <tr><td><code>get(("users","xiaoming"), "prefs")</code></td><td>精确打开某个文件</td><td>返回 Item，数据在 .value ✓</td></tr>
+</table>
+
+<div class="card amber">
+  <p style="margin:4px 0"><b>常见疑问：为什么不直接用一个字符串当 key，比如 "users_xiaoming_prefs"？</b><br>
+  因为字符串没法"按前半截查"。拆成元组后，框架才知道路径的层级结构，
+  <code>search(("users",))</code> 才能一键捞出全部用户的数据。扁平字符串做不到这件事——这就是"用元组而不用字符串"的全部理由。</p>
+</div>
+
+<h2>记忆锚点</h2>
+<div class="card">
+  <p style="margin:4px 0">📌 namespace = 文件夹路径（元组，每项一级，级数自由）<br>
+  📌 key = 文件名，value(dict) = 文件内容<br>
+  📌 get = 精确打开；search(前缀元组) = ls 整个文件夹</p>
+</div>
+
+</body>
+</html>

@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>53b · “xiaoming” 和 “user_name” 人话版（比喻）</title>
+<style>
+  body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+         max-width: 800px; margin: 0 auto; padding: 26px 20px; color: #1e293b; line-height: 2; background: #f8fafc; }
+  h1 { font-size: 22px; border-bottom: 3px solid #059669; padding-bottom: 10px; }
+  h2 { font-size: 18px; margin-top: 28px; color: #047857; }
+  .card { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px 20px; margin: 14px 0; }
+  .green { border-left: 5px solid #059669; }
+  .amber { border-left: 5px solid #d97706; }
+  .blue  { border-left: 5px solid #2563eb; }
+  code { background:#eef2ff; color:#3730a3; padding:1px 6px; border-radius:4px; font-size:13px; }
+  .tip { background:#fffbeb; border:1px solid #fcd34d; border-radius:8px; padding:12px 16px; font-size:14px; }
+  .scene { background:#f1f5f9; border-radius:12px; padding:16px 20px; line-height:1.95; }
+</style>
+</head>
+<body>
+
+<h1>53b · “xiaoming” 和 “user_name” 到底啥关系（人话版）</h1>
+
+<h2>先听一个小区快递柜的故事</h2>
+<div class="scene">
+<p>🏢 有一栋楼，门口是一排<b>快递柜（这就是 store 档案柜）</b>。每个柜子上贴着名字：其中一个柜子贴着
+<b>“xiaoming”</b>。物业（也就是写代码的我）在小明入住<b>之前</b>，就往这个贴着“xiaoming”的柜子里塞了一封信：
+“小明喜欢中文、爱天文”。</p>
+
+<p>🚶 现在有人走到前台（这就是 <code>invoke</code> 调用），张口说：“<b>我叫小明</b>”。前台在一个<b>访客白板（这就是 state 白板）</b>上写下“小明”两个字，发了张访客条。</p>
+
+<p>🔧 有个快递员（就是工具 <code>my_info</code>）要去取信。他怎么取？——他<b>根本不看白板上的名字</b>，
+而是径直走到那个<b>柜门上写着“xiaoming”的柜子</b>，把信拿出来。因为柜门上的“xiaoming”是物业拿油漆<b>提前刷死在柜子上的</b>，不是从白板抄来的。</p>
+</div>
+
+<div class="card amber">
+  <p style="margin:4px 0"><b>所以你的问题答案就是：这两处的“xiaoming / 小明”是物业（我）随手刷成一样的，纯属巧合。</b>
+  柜门上的名字和访客白板上的名字，<b>本来没有任何绳子连着</b>。</p>
+</div>
+
+<h2>那为什么 demo 看起来对得上？</h2>
+<div class="card green">
+  <p>因为物业刷柜门时，正好<b>猜</b>了访客会说“小明”，两处就一致了。快递员把“白板上的名字（小明）”+
+  “柜子里的信（小明写的喜好）”拼成一句话念出来，听着就通顺。</p>
+  <p>但这通顺是物业<b>手填的巧合</b>，不是系统保证的。</p>
+</div>
+
+<h2>把访客换成“小美”，立刻穿帮（实验实况）</h2>
+<div class="card blue">
+  <p>现在访客说“我叫<b>小美</b>”，白板上写“小美”。可快递员还是去开那个<b>写着 xiaoming 的柜子</b>，
+  于是念出：</p>
+  <p>“白板说我是<b>小美</b>，柜子里却是<b>xiaoming</b>的喜好：爱天文……”</p>
+  <p>——<b>自相矛盾</b>。这就是 53 课实验证明的事：改 user_name，store 读到的不变。</p>
+</div>
+
+<h2>正确的做法：让快递员“看白板上的名字去找柜子”</h2>
+<div class="card green">
+  <p>真规矩应该是：快递员先<b>看一眼白板</b>（<code>state.user_name</code>），访客叫啥，就去开<b>叫那个名字的柜子</b>。
+  或者更靠谱：看访客<b>工牌上的身份证号</b>（<code>context.user_id</code>，工牌是物业发的、假不了），按号开柜。</p>
+  <p>一句话：<b>身份（白板/工牌）当钥匙，柜子按钥匙开</b>，而不是把柜门名字刷死。</p>
+</div>
+
+<h2>背这句就够</h2>
+<div class="tip">📌 柜门上的“xiaoming”和访客说的“小明”<b>没绳子连</b>，只是物业手填成一样的。<br>
+📌 想真连上：快递员看白板/工牌的名字去<b>开对应的柜子</b>（动态拼 namespace），别把柜门名字刷死。</div>
+
+</body>
+</html>

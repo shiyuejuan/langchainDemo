@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>55b · 短期记忆三脚凳 · 深度版</title>
+<style>
+  body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+         max-width: 940px; margin: 0 auto; padding: 26px 20px; color: #1e293b; line-height: 1.95; background: #f8fafc; }
+  h1 { font-size: 23px; border-bottom: 3px solid #d97706; padding-bottom: 10px; }
+  h2 { font-size: 18px; margin-top: 32px; color: #b45309; }
+  h3 { font-size: 15px; color:#0f766e; }
+  .code { background: #0f172a; color: #e2e8f0; padding: 14px 16px; border-radius: 10px;
+          overflow-x: auto; font-size: 12.8px; line-height: 1.7; font-family: "SF Mono", Menlo, monospace; }
+  .code .cm { color: #64748b; } .code .y { color: #fde047; } .code .g { color: #86efac; }
+  .card { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px 20px; margin: 14px 0; }
+  .amber { border-left: 5px solid #d97706; }
+  .blue { border-left: 5px solid #2563eb; }
+  .green { border-left: 5px solid #059669; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; background:#fff; font-size: 13.6px; }
+  th, td { border:1px solid #cbd5e1; padding:8px 11px; text-align:left; vertical-align:top; }
+  th { background:#fef3c7; }
+  code { background:#eef2ff; color:#3730a3; padding:1px 6px; border-radius:4px; font-size:12.5px; }
+  .tip { background:#fffbeb; border:1px solid #fcd34d; border-radius:8px; padding:12px 16px; font-size:14px; }
+  .flow { background:#fff; border:2px solid #e2e8f0; border-radius:12px; padding:14px 18px; margin:14px 0; }
+  .step { background:#eff6ff; border:1px solid #bfdbfe; border-radius:8px; padding:8px 12px; margin:6px 0; }
+  .step b { color:#1d4ed8; }
+  .drawer { background:#ecfdf5; border:1px dashed #10b981; border-radius:8px; padding:8px 12px; margin:6px 0; font-size:13px; }
+</style>
+</head>
+<body>
+
+<h1>55b · 短期记忆三脚凳 · 深度版（机制层）</h1>
+<p>55 课用“拆腿实验”证明了三者缺一不可。这里把<b>内部机制</b>扒开：每次 invoke 后台到底跑了什么、三种存储各存在哪、以及你最可能问的 8 个问题。</p>
+
+<h2>一、先纠正一个误解：State 不是“可拆的腿”，是凳面（必有的基底）</h2>
+<div class="card amber">
+  <p>课程写“State + Checkpointer + Thread ID”，但严格说 <b>State 是永远存在的</b>——它是 LangGraph 图的<b>状态表</b>（TypedDict，含 <code>messages</code> + 你加的 <code>user_name</code> 等字段）。
+  没它图都跑不起来。</p>
+  <p>所以更准确的说法是：<b>State 是“记忆的载体”，Checkpointer + Thread ID 是“让载体跨调用活下来”的两个条件</b>。
+  拆掉后两者，State 每次都是新建的全新白板——也就是金鱼脑。</p>
+</div>
+
+<h2>二、一次带 Checkpointer 的 invoke，后台到底干了啥（时间线）</h2>
+<div class="flow">
+  <div class="step"><b>① 接单：</b><code>invoke(input, config={"thread_id":"t1"})</code></div>
+  <div class="step"><b>② 存档员去 t1 抽屉找快照：</b>首次→空，从初始 state 开始；非首次→取出上次存的 state（消息+字段）铺回。</div>
+  <div class="step"><b>③ 合并输入：</b>把 input 的 <code>messages</code>（追加）和 <code>user_name</code>（覆盖）写进 state。</div>
+  <div class="step"><b>④ 跑 agent 循环：</b>model 节点→（工具节点）→model……每跑完一个“超级步”就<b>存一份 checkpoint</b>。</div>
+  <div class="step"><b>⑤ 收工：</b>把最终 state 存回 t1 抽屉，return 整份 state。</div>
+  <div class="drawer">🗄️ t1 抽屉此刻存着：messages（含两轮全部对话）+ user_name + 各节点执行进度</div>
+  <div class="step"><b>⑥ 下次 invoke(t1)：</b>回到 ②，从抽屉取出 → 消息条数自动续上。</div>
+</div>
+<div class="card blue">
+  <p><b>“拍照”是每步拍一次，不是只拍最后一张。</b>Checkpointer 存的是 <b>该 thread_id 的 state 快照 + 节点执行进度</b>，
+  所以就算中途崩溃，也能从断点续跑——这才是它和“单纯把 messages 存文件”的本质区别。</p>
+</div>
+
+<h2>三、为什么是“2 条 → 4 条”？（铁证拆解）</h2>
+<table>
+  <tr><th>时刻</th><th>t1 抽屉里有什么</th><th>消息数</th></tr>
+  <tr><td>第 1 轮前</td><td>空</td><td>0</td></tr>
+  <tr><td>第 1 轮后</td><td>[用户“我叫小测”, AI“你叫小测”]</td><td>2</td></tr>
+  <tr><td>第 2 轮取回 + 新输入 + 新回复</td><td>[旧2条, 用户“我叫什么”, AI“你叫小测”]</td><td>4</td></tr>
+</table>
+<p><b>“2→4”就是历史续上的硬证据：</b>旧 2 条从抽屉里铺回来了。没有 checkpointer，每次都从 0 开始，永远停在 2。</p>
+
+<h2>四、三种“存”的精确分工（别再混）</h2>
+<table>
+  <tr><th>组件</th><th>存的是什么</th><th>寻址方式</th><th>存活范围</th><th>在 47/48/55 哪讲过</th></tr>
+  <tr><td><b>State</b></td><td>单次运行的全部字段（messages+自定义键）</td><td>无（内存中的当前表）</td><td>单次 invoke 内部</td><td>47/50</td></tr>
+  <tr><td><b>Checkpointer</b></td><td>某 thread_id 的 state 快照 + 进度</td><td><code>thread_id</code></td><td>跨 invoke（同线程内）</td><td>45/55</td></tr>
+  <tr><td><b>Store</b></td><td>跨会话的业务数据（用户画像/偏好）</td><td><code>namespace</code> 元组</td><td>跨会话/跨用户</td><td>47/48/53</td></tr>
+</table>
+<div class="card green">
+  <p>一句话：<b>Checkpointer 管“对话进行到哪了”，Store 管“某用户的某份资料”</b>。两者都能持久，但粒度不同。
+  55 的三脚凳只负责“会话内续命”；真正跨天、跨进程的长期记忆，是 Store（或把 Checkpointer 换成 <code>SqliteSaver</code> 落盘）。</p>
+</div>
+
+<h2>五、InMemorySaver 的“短期”到底多短？</h2>
+<div class="card amber">
+  <p><code>InMemorySaver</code> 把快照存在<b>进程内存</b>里。所以：</p>
+  <ul>
+    <li>✅ 同一次程序运行内、同 thread_id → 记得住（55 实验 0）；</li>
+    <li>❌ 程序一关、再打开 → 抽屉清空，全忘（这就是为什么它叫“短期”）。</li>
+  </ul>
+  <p>要“长期”就把 <code>InMemorySaver()</code> 换成 <code>SqliteSaver.from_conn_string("mem.db")</code>（落本地文件），
+  或上 LangGraph Platform 的托管版——<b>机制完全一样，只换“抽屉”的材质</b>（内存↔磁盘）。</p>
+</div>
+
+<h2>六、常见问题 8 连</h2>
+<div class="card gray" style="border-left:5px solid #94a3b8">
+  <p><b>Q1：thread_id 能用中文 / 任意字符串吗？</b> 能，它只是个标识，比如按“用户ID+日期”拼。</p>
+  <p><b>Q2：两个不同用户用同一个 thread_id 会怎样？</b> 串台——两人对话混在一起（45 课场景③的反面教训）。</p>
+  <p><b>Q3：怎么“清空记忆”？</b> 换一个 thread_id 即可；旧抽屉留着但不再读。要真删就调 checkpointer 的 delete 接口。</p>
+  <p><b>Q4：State 里我加的 user_name 会进快照吗？</b> 会！整个 state（含 user_name）都进 checkpoint。
+  所以 54 课里 user_name=明明 其实也躺在 t1 抽屉里，只是<b>模型不自动读它</b>（54 课核心）。</p>
+  <p><b>Q5：不给 thread_id 真的报错吗？</b> 真报错——55 实验 2 实测 <code>Checkpointer requires ... thread_id</code>。框架强制，防止你误以为在续聊其实没存上。</p>
+  <p><b>Q6：有 checkpointer 还必须每次传同一个 thread_id 吗？</b> 想续同一段记忆就传同一个；想开新对话就换。</p>
+  <p><b>Q7：模型能直接“看”到 checkpointer 存的快照吗？</b> 不能直接看。它通过 <b>messages</b> 间接看到（快照里的 messages 被铺回）。所以 54 课说“自定义键不进 prompt”依然成立。</p>
+  <p><b>Q8：Store 和 Checkpointer 会冲突吗？</b> 不会，两套独立机制，一个管会话进度、一个管业务档案，可同时挂（47 课就是同时挂的）。</p>
+</div>
+
+<h2>七、一句话收口</h2>
+<div class="tip">📌 <b>短期记忆 = State（载体）＋ Checkpointer（留住）＋ Thread ID（寻址）。</b><br>
+📌 内部机制：每次 invoke 先按 thread_id 取快照→合并输入→跑循环每步存盘→收工存回。<br>
+📌 “2→4 条消息”=历史续上的铁证；InMemorySaver 进程退出即失，换 SqliteSaver 才落盘长期。<br>
+📌 Checkpointer 管“对话到哪了”，Store 管“某用户资料”，两者粒度不同、互不冲突。</div>
+
+</body>
+</html>

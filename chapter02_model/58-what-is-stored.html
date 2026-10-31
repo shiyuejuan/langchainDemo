@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>58 · 短期记忆：到底存了什么内容？</title>
+<style>
+  body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+         max-width: 900px; margin: 0 auto; padding: 26px 20px; color: #1e293b; line-height: 1.85; background: #f8fafc; }
+  h1 { font-size: 22px; border-bottom: 3px solid #d97706; padding-bottom: 10px; }
+  h2 { font-size: 18px; margin-top: 30px; color: #b45309; }
+  .code { background: #0f172a; color: #e2e8f0; padding: 14px 16px; border-radius: 10px;
+          overflow-x: auto; font-size: 12.8px; line-height: 1.65; font-family: "SF Mono", Menlo, monospace; }
+  .code .cm { color: #64748b; } .code .y { color: #fde047; } .code .g { color: #86efac; }
+  .card { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px 20px; margin: 14px 0; }
+  .amber { border-left: 5px solid #d97706; }
+  .blue { border-left: 5px solid #2563eb; }
+  .green { border-left: 5px solid #059669; }
+  .out { background: #0f172a; color: #a7f3d0; padding: 12px 14px; border-radius: 8px;
+         font-size: 12.8px; line-height: 1.7; font-family: "SF Mono", Menlo, monospace; white-space: pre-wrap; }
+  code { background:#eef2ff; color:#3730a3; padding:1px 6px; border-radius:4px; font-size:12.5px; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; background:#fff; font-size: 14px; }
+  th, td { border:1px solid #cbd5e1; padding:8px 11px; text-align:left; vertical-align:top; }
+  th { background:#fef3c7; }
+  .tip { background:#fffbeb; border:1px solid #fcd34d; border-radius:8px; padding:12px 16px; font-size:14px; }
+</style>
+</head>
+<body>
+
+<h1>58 · 短期记忆：到底存了什么内容？</h1>
+<p>57 课讲了“数据存在哪”（RAM / 磁盘）。这一课讲“快照里具体装了哪些东西”——直接打印真实结构，不讲故事。</p>
+
+<h2>一、真实打印：抽屉里的快照长这样</h2>
+<p>跑一遍带自定义字段 <code>user_name</code> 的 agent，再用 <code>cp.get_tuple(CFG)</code> 打开抽屉，打印出来的内容：</p>
+<div class="out">=== 抽屉里 channel_values（被存下来的“内容”）===
+  键名: ['messages', 'user_name']
+  messages 条数: 2
+  user_name = 小明
+
+=== 快照自己的元信息 checkpoint 字典键 ===
+  ['v', 'ts', 'id', 'channel_versions', 'versions_seen', 'updated_channels', 'channel_values']
+  ts(时间戳) = 2026-10-31T02:50:30...
+  id(快照版本号) = 1f1d4d5d-...
+
+=== 执行进度 pending_writes ===
+  []</div>
+
+<h2>二、拆开看：快照 = 两大部分</h2>
+<div class="card green">
+  <h3>第 ① 部分：你的 State 全部字段（channel_values）</h3>
+  <p>这是<b>被存下来的“内容”本体</b>。它不是一个单独变量，而是你 state 里的<b>所有键</b>：</p>
+  <ul>
+    <li><code>messages</code>：整段对话（每条用户/AI/工具消息）——这是“记忆”的主体；</li>
+    <li><code>user_name</code>：你自定义的字段，<b>也原样存进去了</b>（上面打印里 <code>user_name = 小明</code> 就是证据）。</li>
+  </ul>
+  <p>→ 换句话说：<b>state 里写了什么，快照就存什么</b>，一个不漏。你加了 <code>user_name</code> 它就存 <code>user_name</code>；加了别的字段也照存。</p>
+</div>
+
+<div class="card blue">
+  <h3>第 ② 部分：图的执行进度 + 元信息（不是你写的内容）</h3>
+  <table>
+    <tr><th>字段</th><th>是什么</th></tr>
+    <tr><td><code>ts</code></td><td>时间戳（这版快照什么时候拍的）</td></tr>
+    <tr><td><code>id</code></td><td>快照版本号（同一 thread_id 每更新一次换一个 id）</td></tr>
+    <tr><td><code>channel_versions</code></td><td>每个 channel（如 messages）的版本号，用来判断“哪份更新”</td></tr>
+    <tr><td><code>pending_writes</code></td><td>“任务现场”——当前停在哪个节点、还有哪些写入没落地。让图可以<b>中途断点续跑</b></td></tr>
+  </table>
+  <p>这部分是 LangGraph 自己用的“运行档案”，不是你的业务数据，但正因为有它，记忆才能精确地从中断处续上。</p>
+</div>
+
+<h2>三、对照：什么被存了，什么<b>没</b>被存</h2>
+<table>
+  <tr><th>会被存进快照</th><th>不会存（在别处）</th></tr>
+  <tr><td>✅ 整段 <code>messages</code> 对话</td><td>❌ 你的 Python 代码 / agent 定义</td></tr>
+  <tr><td>✅ state 里所有自定义字段（user_name 等）</td><td>❌ 工具的定义（@tool 函数）</td></tr>
+  <tr><td>✅ 执行进度（pending_writes）</td><td>❌ 模型本身（权重在远端服务器）</td></tr>
+  <tr><td>✅ 时间戳 / 版本号等元信息</td><td>❌ API Key（在环境变量 / .env 里）</td></tr>
+</table>
+<div class="card amber">
+  <p><b>一句话：快照只存“这次对话进行到哪了”这件事本身（对话内容 + 进度），不存“怎么跑起来”的程序和密钥。</b>
+  程序下次启动重新加载，再用 thread_id 把快照取回来续上就行。</p>
+</div>
+
+<h2>四、呼应 54 课（为什么存了 user_name 模型仍答小明）</h2>
+<div class="card green">
+  <p>54 课你问：第 2 轮把 user_name 改成“明明”，回答却还是“小明”。真相在这里揭晓——
+  <code>user_name="明明"</code> <b>确实被存进了快照的 channel_values</b>（和前面打印的“小明”同理）。
+  但模型只读取 <code>messages</code> 来生成回答，<b>不会自动去翻 channel_values 里的 user_name</b>。
+  所以“存了”和“模型用没用”是两回事：存了（在抽屉里），但没人把它写进 messages 喂给模型。</p>
+</div>
+
+<div class="tip">📌 <b>快照内容 = 你的 state 全部字段（messages + 自定义字段）+ 图执行进度 + 元信息。</b><br>
+📌 你 state 里写什么，它就存什么；你加 user_name 它就存 user_name。<br>
+📌 存的是“对话进行到哪了”，不是代码、不是模型、不是密钥。<br>
+📌 user_name 被存了但模型不自动读它 → 这正是 54 课那个现象的根。</div>
+
+</body>
+</html>

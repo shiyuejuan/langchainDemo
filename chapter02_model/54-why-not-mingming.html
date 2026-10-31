@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>54 · 第 2 轮改了 user_name=明明，回答为啥还是小明？</title>
+<style>
+  body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+         max-width: 880px; margin: 0 auto; padding: 26px 20px; color: #1e293b; line-height: 1.9; background: #f8fafc; }
+  h1 { font-size: 22px; border-bottom: 3px solid #2563eb; padding-bottom: 10px; }
+  h2 { font-size: 18px; margin-top: 28px; color: #1d4ed8; }
+  .code { background: #0f172a; color: #e2e8f0; padding: 14px 16px; border-radius: 10px;
+          overflow-x: auto; font-size: 12.8px; line-height: 1.7; font-family: "SF Mono", Menlo, monospace; }
+  .code .cm { color: #64748b; } .code .y { color: #fde047; } .code .g { color: #86efac; }
+  .card { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px 20px; margin: 14px 0; }
+  .blue { border-left: 5px solid #2563eb; }
+  .amber { border-left: 5px solid #d97706; }
+  .green { border-left: 5px solid #059669; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; background:#fff; font-size: 14px; }
+  th, td { border:1px solid #cbd5e1; padding:8px 11px; text-align:left; vertical-align:top; }
+  th { background:#eff6ff; }
+  code { background:#eef2ff; color:#3730a3; padding:1px 6px; border-radius:4px; font-size:12.5px; }
+  .tip { background:#fffbeb; border:1px solid #fcd34d; border-radius:8px; padding:12px 16px; font-size:14px; }
+</style>
+</head>
+<body>
+
+<h1>54 · 第 2 轮改了 user_name=明明，回答为啥还是“小明”？</h1>
+<p>你的问题极精准，直接命中了 LangGraph 最反直觉的一个点。先给结论：</p>
+
+<div class="card amber">
+  <p style="margin:4px 0"><b>state 白板确实被改成了“明明”（实跑证明），但模型根本“看不到”白板这个键——它只看到消息列表。</b>
+  第 2 轮你又说了句“不要调工具，直接答”，于是模型<b>没调用 my_info</b>，自然也没机会去读 <code>state.user_name</code>，
+  只能从<b>聊天历史里已有的“小明”</b>推答案，于是又答了“小明”。</p>
+</div>
+
+<h2>一、实跑数据（54 demo 打印）</h2>
+<div class="code">第 1 轮回答: 你叫<span class="y">小明</span>。
+  第 1 轮后 state.user_name = 小明
+
+第 2 轮回答: 你叫<span class="y">小明</span>。
+  第 2 轮后 state.user_name = <span class="g">明明</span>   <span class="cm">← 白板确实被改写了！</span>
+  第 2 轮模型“看到了”的 messages：
+    human: 我叫什么？
+    [AI]: 
+    [工具]: 白板用户名=小明
+    [AI]: 你叫小明。
+    human: 再汇报一次我是谁，不要调工具，直接答。
+    [AI]: 你叫小明。   <span class="cm">← 它照着历史里的“小明”复述</span></div>
+<div class="card blue">
+  <p>注意两件事同时为真：① 第 2 轮<b>结束后</b> state.user_name 已经是“明明”（白板改成功了）；
+  ② 但模型这一轮的回答是从<b>上一条 AI 消息“你叫小明”</b>复述来的——它从没去查新写的白板。</p>
+</div>
+
+<h2>二、为什么模型“看不到” user_name？</h2>
+<div class="card green">
+  <p>这是 45/46 课“上下文工程”的终极回响：<b>模型只有消息列表里给它的东西才知道。</b></p>
+  <p>自定义 state 键 <code>user_name</code> 只是<b>存在 state 字典里的一个字段</b>，它<b>不会自动塞进发给 LLM 的 prompt</b>。
+  唯一会去读它的，是那个工具 <code>my_info</code>（它在代码里写 <code>runtime.state.get('user_name')</code>）。</p>
+  <p>所以链路是这样的：</p>
+  <table>
+    <tr><th>想让模型知道 user_name</th><th>必须满足</th></tr>
+    <tr><td>靠白板（state.user_name）</td><td>得有个东西把白板内容<b>读出来再写进消息</b>——也就是调 my_info 工具</td></tr>
+    <tr><td>第 2 轮</td><td>用户下令“不要调工具”→ 工具没跑 → 没人把 user_name 写进上下文 → 模型只能看历史</td></tr>
+  </table>
+</div>
+
+<h2>三、那“明明”到底卡在哪一层？（人话比喻）</h2>
+<div class="card amber">
+  <p>把 state 想成<b>后台数据库</b>，把 my_info 想成<b>会查库的接口</b>，把模型想成<b>只看前台的客服</b>。</p>
+  <p>你改了后台库里用户的名字（user_name=明明），但客服<b>没调接口查库</b>（你让他别调工具），
+  他桌上只有之前的聊天记录写着“小明”，于是继续说“小明”。库里早改了，可客服不知道。</p>
+</div>
+
+<h2>四、怎么让它答“明明”？两条路</h2>
+<div class="card green">
+  <h3>路 ①：让模型调工具（撤销“不要调工具”）</h3>
+  <p>把第 2 轮用户指令改成“汇报一下”，模型就会调 my_info → 工具读 <code>state.user_name="明明"</code> → 回答“明明”。</p>
+  <div class="code"><span class="cm"># 第 2 轮若允许调工具，工具会读到被改写后的白板：</span>
+白板用户名=明明   <span class="cm">← state 在合并输入时已变成 明明</span></div>
+  <h3>路 ②：把身份放进会进 prompt 的地方</h3>
+  <p>把当前身份写进 system_prompt，或在每次输入里把“我是明明”放进用户消息——这些会进 messages，模型就看到了。
+  自定义 state 键本身<b>不进 prompt</b>，这是设计使然。</p>
+</div>
+
+<h2>五、一句话记住</h2>
+<div class="tip">📌 <b>自定义 state 键只是后台数据，不会自动喂给模型；模型只认 messages。</b><br>
+📌 第 2 轮“你是小明”不是因为白板没改（白板已改明明），而是因为“不要调工具”导致没人把白板读出来放进上下文。<br>
+📌 想让新身份被模型采用：要么让工具读 state，要么把身份写进 prompt/消息。</div>
+
+</body>
+</html>

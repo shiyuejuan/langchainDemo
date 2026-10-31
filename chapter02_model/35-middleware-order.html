@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>多个中间件组合及执行顺序（洋葱模型）</title>
+<style>
+  body { background:#ffffff; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; margin:0; padding:24px; }
+  h1 { font-size:18px; font-weight:600; color:#2C2C2A; text-align:center; }
+  h2 { font-size:15px; font-weight:500; color:#2C2C2A; margin-top:36px; }
+  .wrap { max-width:780px; margin:0 auto; }
+  .card { background:#F1EFE8; border-radius:10px; padding:14px 18px; margin:10px 0; font-size:13.5px; color:#444441; line-height:1.7; }
+  code { font-family:Menlo,monospace; font-size:12.5px; background:#EEEDFE; border-radius:4px; padding:1px 5px; color:#3C3489; }
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>多个中间件组合及执行顺序 —— 洋葱模型</h1>
+
+<h2>一、wrap 型：middleware=[A, B, C]，A 最外层、C 贴着模型</h2>
+<svg viewBox="0 0 720 500" width="100%" xmlns="http://www.w3.org/2000/svg">
+  <text x="360" y="34" text-anchor="middle" font-size="14" font-weight="500" fill="#2C2C2A" font-family="-apple-system, sans-serif">请求从外往里穿，响应从里往外穿</text>
+  <rect x="40" y="70" width="640" height="380" rx="10" fill="#E6F1FB" stroke="#185FA5" stroke-width="0.5"/>
+  <text x="56" y="96" font-size="13" font-weight="500" fill="#0C447C" font-family="-apple-system, sans-serif">A —— 列表第一个 = 最外层（before 最先跑 / after 最后跑）</text>
+  <rect x="90" y="130" width="540" height="280" rx="10" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.5"/>
+  <text x="106" y="156" font-size="13" font-weight="500" fill="#085041" font-family="-apple-system, sans-serif">B —— 列表中间 = 中间层</text>
+  <rect x="140" y="190" width="440" height="180" rx="10" fill="#FAEEDA" stroke="#BA7517" stroke-width="0.5"/>
+  <text x="156" y="216" font-size="13" font-weight="500" fill="#633806" font-family="-apple-system, sans-serif">C —— 列表最后 = 最内层（贴着模型）</text>
+  <rect x="240" y="252" width="240" height="70" rx="8" fill="#F1EFE8" stroke="#888780" stroke-width="0.5"/>
+  <text x="360" y="278" text-anchor="middle" dominant-baseline="central" font-size="13.5" font-weight="500" fill="#444441" font-family="-apple-system, sans-serif">真正的模型调用</text>
+  <text x="360" y="300" text-anchor="middle" dominant-baseline="central" font-size="11.5" fill="#5F5E5A" font-family="-apple-system, sans-serif">handler(request)</text>
+  <text x="360" y="484" text-anchor="middle" font-size="13" fill="#5F5E5A" font-family="-apple-system, sans-serif">请求：A before → B before → C before → 真调用 → C after → B after → A after</text>
+</svg>
+
+<h2>二、成对钩子（before_model / after_model）也是洋葱语义</h2>
+<svg viewBox="0 0 720 180" width="100%" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M2 1L8 5L2 9" fill="none" stroke="#5F5E5A" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+  </defs>
+  <text x="60" y="66" font-size="13" font-weight="500" fill="#0C447C" font-family="-apple-system, sans-serif">before_model</text>
+  <rect x="200" y="46" width="60" height="40" rx="8" fill="#E6F1FB" stroke="#185FA5" stroke-width="0.5"/>
+  <text x="230" y="66" text-anchor="middle" dominant-baseline="central" font-size="13" fill="#0C447C" font-family="-apple-system, sans-serif">A</text>
+  <path d="M264 66 L288 66" fill="none" stroke="#5F5E5A" stroke-width="1.5" marker-end="url(#arr)"/>
+  <rect x="292" y="46" width="60" height="40" rx="8" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.5"/>
+  <text x="322" y="66" text-anchor="middle" dominant-baseline="central" font-size="13" fill="#085041" font-family="-apple-system, sans-serif">B</text>
+  <path d="M356 66 L380 66" fill="none" stroke="#5F5E5A" stroke-width="1.5" marker-end="url(#arr)"/>
+  <rect x="384" y="46" width="60" height="40" rx="8" fill="#FAEEDA" stroke="#BA7517" stroke-width="0.5"/>
+  <text x="414" y="66" text-anchor="middle" dominant-baseline="central" font-size="13" fill="#633806" font-family="-apple-system, sans-serif">C</text>
+  <text x="60" y="146" font-size="13" font-weight="500" fill="#0C447C" font-family="-apple-system, sans-serif">after_model　</text>
+  <rect x="200" y="126" width="60" height="40" rx="8" fill="#FAEEDA" stroke="#BA7517" stroke-width="0.5"/>
+  <text x="230" y="146" text-anchor="middle" dominant-baseline="central" font-size="13" fill="#633806" font-family="-apple-system, sans-serif">C</text>
+  <path d="M264 146 L288 146" fill="none" stroke="#5F5E5A" stroke-width="1.5" marker-end="url(#arr)"/>
+  <rect x="292" y="126" width="60" height="40" rx="8" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.5"/>
+  <text x="322" y="146" text-anchor="middle" dominant-baseline="central" font-size="13" fill="#085041" font-family="-apple-system, sans-serif">B</text>
+  <path d="M356 146 L380 146" fill="none" stroke="#5F5E5A" stroke-width="1.5" marker-end="url(#arr)"/>
+  <rect x="384" y="126" width="60" height="40" rx="8" fill="#E6F1FB" stroke="#185FA5" stroke-width="0.5"/>
+  <text x="414" y="146" text-anchor="middle" dominant-baseline="central" font-size="13" fill="#0C447C" font-family="-apple-system, sans-serif">A</text>
+  <text x="520" y="66" font-size="12" fill="#5F5E5A" font-family="-apple-system, sans-serif">进：按列表序</text>
+  <text x="520" y="146" font-size="12" fill="#5F5E5A" font-family="-apple-system, sans-serif">出：反序（实跑验证）</text>
+</svg>
+
+<h2>三、实战排位口诀</h2>
+<div class="card">
+<b>排前面的 = 外层</b>：最先看到<b>原始请求</b>，最后收拾残局（比如兜底、限流统计放前面）。<br>
+<b>排后面的 = 内层</b>：贴近模型，看到的是<b>被外层加工过的请求</b>（比如偷看/打印放后面，才能看到清理、筛选后的真实模样）。
+</div>
+<div class="card">
+已验证的例子（第 28 课）：<code>middleware=[ContextEditingMiddleware, PeekMiddleware]</code> —— 偷看排在后面（内层），所以看到的是<b>清理后的消息</b>；如果调换位置，偷看到的就是原文了。
+</div>
+<div class="card">
+<b>踩坑记录</b>：create_agent 用 <code>m.name</code> 判重，而 name 默认 = 类名。同一个自定义中间件类实例化多次会报 <code>Please remove duplicate middleware instances</code> —— 重写 <code>name</code> 属性保证唯一即可。
+</div>
+</div>
+</body>
+</html>

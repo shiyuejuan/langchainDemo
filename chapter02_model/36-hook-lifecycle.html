@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>什么是 hook（钩子函数）</title>
+<style>
+  body { background:#ffffff; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; margin:0; padding:24px; }
+  h1 { font-size:18px; font-weight:600; color:#2C2C2A; text-align:center; }
+  h2 { font-size:15px; font-weight:500; color:#2C2C2A; margin-top:36px; }
+  .wrap { max-width:780px; margin:0 auto; }
+  .card { background:#F1EFE8; border-radius:10px; padding:14px 18px; margin:10px 0; font-size:13.5px; color:#444441; line-height:1.7; }
+  code { font-family:Menlo,monospace; font-size:12.5px; background:#EEEDFE; border-radius:4px; padding:1px 5px; color:#3C3489; }
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>什么是 hook（钩子函数）—— 控制权反转</h1>
+
+<h2>一、本质：谁调用谁，反过来了</h2>
+<svg viewBox="0 0 720 220" width="100%" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M2 1L8 5L2 9" fill="none" stroke="#5F5E5A" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+  </defs>
+  <text x="60" y="46" font-size="13" font-weight="500" fill="#444441" font-family="-apple-system, sans-serif">普通函数调用：你写代码，你主动调用函数</text>
+  <rect x="80" y="60" width="180" height="48" rx="8" fill="#E6F1FB" stroke="#185FA5" stroke-width="0.5"/>
+  <text x="170" y="84" text-anchor="middle" dominant-baseline="central" font-size="13" fill="#0C447C" font-family="-apple-system, sans-serif">你写的代码</text>
+  <path d="M270 84 L370 84" fill="none" stroke="#5F5E5A" stroke-width="1.5" marker-end="url(#arr)"/>
+  <text x="320" y="72" text-anchor="middle" font-size="11.5" fill="#5F5E5A" font-family="-apple-system, sans-serif">你调用</text>
+  <rect x="374" y="60" width="180" height="48" rx="8" fill="#F1EFE8" stroke="#888780" stroke-width="0.5"/>
+  <text x="464" y="84" text-anchor="middle" dominant-baseline="central" font-size="13" fill="#444441" font-family="-apple-system, sans-serif">普通函数</text>
+
+  <text x="60" y="156" font-size="13" font-weight="500" fill="#444441" font-family="-apple-system, sans-serif">钩子：框架跑主流程，跑到特定时机自动调用你预留的实现</text>
+  <rect x="80" y="170" width="180" height="48" rx="8" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.5"/>
+  <text x="170" y="194" text-anchor="middle" dominant-baseline="central" font-size="13" fill="#085041" font-family="-apple-system, sans-serif">框架的主流程</text>
+  <path d="M270 194 L370 194" fill="none" stroke="#5F5E5A" stroke-width="1.5" marker-end="url(#arr)"/>
+  <text x="320" y="182" text-anchor="middle" font-size="11.5" fill="#5F5E5A" font-family="-apple-system, sans-serif">到时机自动调</text>
+  <rect x="374" y="170" width="220" height="48" rx="8" fill="#FAEEDA" stroke="#BA7517" stroke-width="0.5"/>
+  <text x="484" y="194" text-anchor="middle" dominant-baseline="central" font-size="13" fill="#633806" font-family="-apple-system, sans-serif">你重写的钩子函数</text>
+</svg>
+
+<h2>二、LangChain agent 的一次运行，钩子挂在哪些时机</h2>
+<svg viewBox="0 0 720 300" width="100%" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="arr2" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M2 1L8 5L2 9" fill="none" stroke="#5F5E5A" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+  </defs>
+  <rect x="40" y="60" width="120" height="56" rx="8" fill="#E6F1FB" stroke="#185FA5" stroke-width="0.5"/>
+  <text x="100" y="88" text-anchor="middle" dominant-baseline="central" font-size="12.5" font-weight="500" fill="#0C447C" font-family="-apple-system, sans-serif">before_agent</text>
+  <text x="100" y="106" text-anchor="middle" dominant-baseline="central" font-size="10.5" fill="#185FA5" font-family="-apple-system, sans-serif">整个运行前 1 次</text>
+  <path d="M160 88 L196 88" fill="none" stroke="#5F5E5A" stroke-width="1.5" marker-end="url(#arr2)"/>
+
+  <rect x="200" y="60" width="120" height="56" rx="8" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.5"/>
+  <text x="260" y="88" text-anchor="middle" dominant-baseline="central" font-size="12.5" font-weight="500" fill="#085041" font-family="-apple-system, sans-serif">before_model</text>
+  <text x="260" y="106" text-anchor="middle" dominant-baseline="central" font-size="10.5" fill="#0F6E56" font-family="-apple-system, sans-serif">每次调模型前</text>
+  <path d="M320 88 L356 88" fill="none" stroke="#5F5E5A" stroke-width="1.5" marker-end="url(#arr2)"/>
+
+  <rect x="360" y="60" width="150" height="56" rx="8" fill="#FAEEDA" stroke="#BA7517" stroke-width="0.5"/>
+  <text x="435" y="88" text-anchor="middle" dominant-baseline="central" font-size="12.5" font-weight="500" fill="#633806" font-family="-apple-system, sans-serif">模型调用 / 工具</text>
+  <text x="435" y="106" text-anchor="middle" dominant-baseline="central" font-size="10.5" fill="#BA7517" font-family="-apple-system, sans-serif">wrap_* 洋葱包裹这步</text>
+  <path d="M510 88 L546 88" fill="none" stroke="#5F5E5A" stroke-width="1.5" marker-end="url(#arr2)"/>
+
+  <rect x="550" y="60" width="120" height="56" rx="8" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.5"/>
+  <text x="610" y="88" text-anchor="middle" dominant-baseline="central" font-size="12.5" font-weight="500" fill="#085041" font-family="-apple-system, sans-serif">after_model</text>
+  <text x="610" y="106" text-anchor="middle" dominant-baseline="central" font-size="10.5" fill="#0F6E56" font-family="-apple-system, sans-serif">每次调模型后</text>
+
+  <path d="M435 116 C 435 160, 260 160, 260 122" fill="none" stroke="#888780" stroke-width="1.2" stroke-dasharray="5 4" marker-end="url(#arr2)"/>
+  <text x="348" y="172" text-anchor="middle" font-size="11.5" fill="#888780" font-family="-apple-system, sans-serif">模型要调工具就循环这一段（第 35 课实跑：每轮 before/after 各来一次）</text>
+
+  <rect x="550" y="200" width="120" height="56" rx="8" fill="#E6F1FB" stroke="#185FA5" stroke-width="0.5"/>
+  <text x="610" y="228" text-anchor="middle" dominant-baseline="central" font-size="12.5" font-weight="500" fill="#0C447C" font-family="-apple-system, sans-serif">after_agent</text>
+  <text x="610" y="246" text-anchor="middle" dominant-baseline="central" font-size="10.5" fill="#185FA5" font-family="-apple-system, sans-serif">整个运行后 1 次</text>
+  <path d="M610 116 L610 196" fill="none" stroke="#5F5E5A" stroke-width="1.2" stroke-dasharray="5 4" marker-end="url(#arr2)"/>
+</svg>
+
+<h2>三、钩子三要素 + 迷你框架实跑</h2>
+<div class="card">
+① <b>时机</b>：框架在主流程里预留的"空位"（如 before_model = 每次调模型前）。<br>
+② <b>你提供实现</b>：继承 AgentMiddleware 重写钩子，主流程一行不改。<br>
+③ <b>框架自动调用</b>：你从不写 <code>agent.before_model()</code> —— invoke 跑到那个时机，框架自己调。
+</div>
+<div class="card">
+迷你框架实跑（36-hook-concept-demo.py）：MyAgent 重写了 <code>before_run/after_run</code>，输出"开工前检查工具箱 → 主流程干活 → 收工后写日志"；LazyAgent 什么都不重写，输出只有"主流程干活"——<b>空钩子无感，主流程完全不受影响</b>。
+</div>
+<div class="card">
+生活比喻：<b>手机闹钟</b>。你只负责设定时间和铃声（重写钩子），到点系统自动响（框架调用）。你不用盯着表，也不用自己按"响铃"按钮——什么时候响，是框架的事；响的时候干什么，是你的事。
+</div>
+</div>
+</body>
+</html>

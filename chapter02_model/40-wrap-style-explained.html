@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>5.4 Wrap-style hooks · 人话版</title>
+<style>
+  body { background:#ffffff; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; margin:0; padding:24px; }
+  h1 { font-size:18px; font-weight:600; color:#2C2C2A; text-align:center; }
+  h2 { font-size:15px; font-weight:500; color:#2C2C2A; margin-top:34px; }
+  .wrap { max-width:780px; margin:0 auto; }
+  .card { background:#F1EFE8; border-radius:10px; padding:14px 18px; margin:10px 0; font-size:13.5px; color:#444441; line-height:1.7; }
+  code { font-family:Menlo,monospace; font-size:12.5px; background:#EEEDFE; border-radius:4px; padding:1px 5px; color:#3C3489; }
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>Wrap-style hooks：它不是检票员，是包装工</h1>
+
+<svg viewBox="0 0 720 280" width="100%" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M2 1L8 5L2 9" fill="none" stroke="#5F5E5A" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+  </defs>
+
+  <g>
+    <rect x="50" y="70" width="300" height="170" rx="10" fill="#E6F1FB" stroke="#185FA5" stroke-width="0.5"/>
+    <text x="200" y="96" text-anchor="middle" font-size="14" font-weight="500" fill="#0C447C" font-family="-apple-system, sans-serif">钩子型 = 车站检票员</text>
+    <text x="200" y="128" text-anchor="middle" font-size="12.5" fill="#185FA5" font-family="-apple-system, sans-serif">车次经过车站时：before / after</text>
+    <text x="200" y="152" text-anchor="middle" font-size="12.5" fill="#185FA5" font-family="-apple-system, sans-serif">你能：读 state、改 state、jump_to</text>
+    <text x="200" y="176" text-anchor="middle" font-size="12.5" fill="#185FA5" font-family="-apple-system, sans-serif">但车跑的途中，你不在车上</text>
+    <text x="200" y="200" text-anchor="middle" font-size="12.5" fill="#185FA5" font-family="-apple-system, sans-serif">（签名 state, runtime）</text>
+  </g>
+
+  <g>
+    <rect x="370" y="70" width="300" height="170" rx="10" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.5"/>
+    <text x="520" y="96" text-anchor="middle" font-size="14" font-weight="500" fill="#085041" font-family="-apple-system, sans-serif">wrap 型 = 列车包装工</text>
+    <text x="520" y="128" text-anchor="middle" font-size="12.5" fill="#0F6E56" font-family="-apple-system, sans-serif">把整趟列车包进你这层壳</text>
+    <text x="520" y="152" text-anchor="middle" font-size="12.5" fill="#0F6E56" font-family="-apple-system, sans-serif">进站前：改 request（override）</text>
+    <text x="520" y="176" text-anchor="middle" font-size="12.5" fill="#0F6E56" font-family="-apple-system, sans-serif">出站后：改 / 替换 result</text>
+    <text x="520" y="200" text-anchor="middle" font-size="12.5" fill="#0F6E56" font-family="-apple-system, sans-serif">不调 handler 直接 return = 车不开（短路）</text>
+  </g>
+
+  <text x="360" y="44" text-anchor="middle" font-size="13" fill="#5F5E5A" font-family="-apple-system, sans-serif">钩子型在"车站"操作（车经过时动手）；wrap 型在"列车外面套壳"（全程跟着）</text>
+</svg>
+
+<h2>那 handler(request) 到底是什么？</h2>
+<div class="card">
+<b>handler 就是"洋葱的下一层"</b>。你调用 <code>handler(request)</code> = 把控制权往里传一层；它返回 = 结果从最里层往回冒、再经过你这一层。所以可以形象地记：<br>
+<code>result = handler(request)</code> —— "放行，把请求交给下一层，拿到结果"<br>
+<code>return handler(request.override(...))</code> —— "放行，但先改一改请求"<br>
+<code>return 自己造的结果</code> —— "不放行，列车根本没开出（短路）"
+</div>
+
+<svg viewBox="0 0 720 220" width="100%" xmlns="http://www.w3.org/2000/svg">
+  <rect x="40" y="50" width="640" height="120" rx="12" fill="#E6F1FB" stroke="#185FA5" stroke-width="0.5"/>
+  <text x="360" y="78" text-anchor="middle" font-size="13.5" font-weight="500" fill="#0C447C" font-family="-apple-system, sans-serif">wrap 层 A（最外）</text>
+  <rect x="90" y="70" width="540" height="80" rx="10" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.5"/>
+  <text x="360" y="96" text-anchor="middle" font-size="13.5" font-weight="500" fill="#085041" font-family="-apple-system, sans-serif">wrap 层 B（中间）</text>
+  <rect x="140" y="86" width="440" height="48" rx="8" fill="#FAEEDA" stroke="#BA7517" stroke-width="0.5"/>
+  <text x="360" y="110" text-anchor="middle" font-size="13.5" font-weight="500" fill="#633806" font-family="-apple-system, sans-serif">wrap 层 C（最里）→ 真实模型 / 工具调用</text>
+  <text x="360" y="200" text-anchor="middle" font-size="12.5" fill="#5F5E5A" font-family="-apple-system, sans-serif">请求从外往里穿（每层可 override），结果从里往外冒 —— handler 就是"往里走一步"的钥匙</text>
+</svg>
+
+<h2>回到 demo：两行就懂</h2>
+<div class="card">
+① <code>@wrap_model_call</code> 的日志中间件：调 <code>handler(request)</code> 前后各打印一行 → 纯放行、只围观（4 行搞定，类式要 12 行）。<br>
+② 注入格式要求：<code>request.override(system_message=...)</code> 后 return handler(改后请求) → 事前立规矩，零跳转（对照 39 课事后质检）。<br>
+一句话记住：<b>钩子型管"车到站的瞬间"，wrap 型管"整趟车被我包着"</b>。
+</div>
+</div>
+</body>
+</html>

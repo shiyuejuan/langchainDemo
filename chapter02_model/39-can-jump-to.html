@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>5.3.5 装饰器参数 can_jump_to</title>
+<style>
+  body { background:#ffffff; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; margin:0; padding:24px; }
+  h1 { font-size:18px; font-weight:600; color:#2C2C2A; text-align:center; }
+  .wrap { max-width:780px; margin:0 auto; }
+  .card { background:#F1EFE8; border-radius:10px; padding:14px 18px; margin:10px 0; font-size:13.5px; color:#444441; line-height:1.7; }
+  code { font-family:Menlo,monospace; font-size:12.5px; background:#EEEDFE; border-radius:4px; padding:1px 5px; color:#3C3489; }
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>can_jump_to：跳转白名单（声明了才建条件边）</h1>
+
+<svg viewBox="0 0 720 270" width="100%" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M2 1L8 5L2 9" fill="none" stroke="#5F5E5A" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+  </defs>
+  <text x="60" y="52" font-size="13" font-weight="500" fill="#791F1F" font-family="-apple-system, sans-serif">未声明（实跑①：静默失效，模型照跑）</text>
+  <rect x="60" y="66" width="150" height="48" rx="8" fill="#FCEBEB" stroke="#A32D2D" stroke-width="0.5"/>
+  <text x="135" y="90" text-anchor="middle" dominant-baseline="central" font-size="12.5" fill="#791F1F" font-family="-apple-system, sans-serif">钩子 return jump_to</text>
+  <path d="M210 90 L250 90" fill="none" stroke="#5F5E5A" stroke-width="1.5" marker-end="url(#a)"/>
+  <text x="230" y="80" text-anchor="middle" font-size="11" fill="#5F5E5A" font-family="-apple-system, sans-serif">add_edge 写死</text>
+  <rect x="254" y="66" width="190" height="48" rx="8" fill="#F1EFE8" stroke="#888780" stroke-width="0.5"/>
+  <text x="349" y="90" text-anchor="middle" dominant-baseline="central" font-size="12.5" fill="#444441" font-family="-apple-system, sans-serif">默认下一站（固定路由）</text>
+  <text x="470" y="90" font-size="11.5" fill="#791F1F" font-family="-apple-system, sans-serif">jump_to 只写进 state，没有路由读它</text>
+
+  <text x="60" y="162" font-size="13" font-weight="500" fill="#085041" font-family="-apple-system, sans-serif">声明 can_jump_to=["model","end"]（条件边生效）</text>
+  <rect x="60" y="176" width="150" height="48" rx="8" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.5"/>
+  <text x="135" y="200" text-anchor="middle" dominant-baseline="central" font-size="12.5" fill="#085041" font-family="-apple-system, sans-serif">钩子 return jump_to</text>
+  <path d="M210 200 L250 200" fill="none" stroke="#5F5E5A" stroke-width="1.5" marker-end="url(#a)"/>
+  <rect x="254" y="176" width="200" height="48" rx="8" fill="#E6F1FB" stroke="#185FA5" stroke-width="0.5"/>
+  <text x="354" y="200" text-anchor="middle" dominant-baseline="central" font-size="12" fill="#0C447C" font-family="-apple-system, sans-serif">路由函数读 state["jump_to"]</text>
+  <path d="M454 186 L492 156" fill="none" stroke="#5F5E5A" stroke-width="1.5" marker-end="url(#a)"/>
+  <path d="M454 200 L492 200" fill="none" stroke="#5F5E5A" stroke-width="1.5" marker-end="url(#a)"/>
+  <path d="M454 214 L492 244" fill="none" stroke="#5F5E5A" stroke-width="1.5" marker-end="url(#a)"/>
+  <rect x="496" y="134" width="110" height="36" rx="8" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.5"/>
+  <text x="551" y="152" text-anchor="middle" dominant-baseline="central" font-size="12" fill="#085041" font-family="Menlo, monospace">model</text>
+  <rect x="496" y="182" width="110" height="36" rx="8" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.5"/>
+  <text x="551" y="200" text-anchor="middle" dominant-baseline="central" font-size="12" fill="#085041" font-family="Menlo, monospace">tools</text>
+  <rect x="496" y="230" width="110" height="36" rx="8" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.5"/>
+  <text x="551" y="248" text-anchor="middle" dominant-baseline="central" font-size="12" fill="#085041" font-family="Menlo, monospace">end</text>
+  <text x="616" y="152" font-size="11" fill="#5F5E5A" font-family="-apple-system, sans-serif">重新进循环</text>
+  <text x="616" y="200" font-size="11" fill="#5F5E5A" font-family="-apple-system, sans-serif">跳工具（进阶）</text>
+  <text x="616" y="248" font-size="11" fill="#5F5E5A" font-family="-apple-system, sans-serif">直接终止</text>
+</svg>
+
+<h2 style="margin-bottom:6px;">三个合法目标</h2>
+<div class="card">
+<code>"end"</code> 终止整个运行（停止守卫）｜
+<code>"model"</code> 重新进模型循环（质检重答、 HITL 放行后再问）｜
+<code>"tools"</code> 跳工具节点（进阶：中间件人为注入了带 tool_calls 的消息时用，源码注释点名 HITL 场景）
+</div>
+
+<h2 style="margin-bottom:6px;">实跑结果（39-can-jump-to-demo.py）</h2>
+<div class="card">
+① 忘写 can_jump_to 的守卫返回 <code>{"jump_to": "end"}</code> → <b>静默失效</b>，模型照跑 1 轮（不报错，就是不停——和方法名拼错同款隐形坑）。<br>
+② 声明 <code>["model"]</code> 的质检钩子：回答结尾缺"完毕" → 附加一条 HumanMessage 提示 + <code>jump_to model</code> → 模型重答合格。dict 里可以<b>同时带状态更新和跳转</b>。
+</div>
+
+<h2 style="margin-bottom:6px;">两条防坑</h2>
+<div class="card">
+1. 跳回 <code>"model"</code> 的钩子<b>务必配计数上限</b>，否则"不合格→跳回→还不合格"就是死循环（demo 用 retry 上限 2 次）。<br>
+2. 类式中间件等价写法：方法上加 <code>@hook_config(can_jump_to=["model"])</code>——框架从钩子方法的 <code>__can_jump_to__</code> 属性读白名单。
+</div>
+</div>
+</body>
+</html>

@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>glob（按名称）vs grep（按内容）</title>
+<style>
+  body { background:#ffffff; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; margin:0; padding:24px; }
+  h1 { font-size:18px; font-weight:600; color:#2C2C2A; text-align:center; }
+  .wrap { max-width:760px; margin:0 auto; }
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>两种检索：按名称（glob） vs 按内容（grep）</h1>
+<svg viewBox="0 0 680 360" width="100%" xmlns="http://www.w3.org/2000/svg">
+  <!-- 左：glob -->
+  <g>
+    <rect x="50" y="60" width="280" height="270" rx="10" fill="#E6F1FB" stroke="#185FA5" stroke-width="0.5"/>
+    <text x="190" y="86" text-anchor="middle" font-size="15" font-weight="500" fill="#0C447C" font-family="-apple-system, sans-serif">检索文件名称</text>
+    <text x="190" y="108" text-anchor="middle" font-size="12.5" fill="#185FA5" font-family="Menlo, monospace">glob_search</text>
+    <text x="68" y="142" font-size="12.5" fill="#185FA5" font-family="-apple-system, sans-serif">输入：文件名模式 如 **/*.py</text>
+    <text x="68" y="172" font-size="12.5" fill="#185FA5" font-family="-apple-system, sans-serif">机制：只比对“路径字符串”</text>
+    <text x="68" y="192" font-size="12.5" fill="#185FA5" font-family="-apple-system, sans-serif">　　　完全不打开文件</text>
+    <text x="68" y="222" font-size="12.5" fill="#185FA5" font-family="-apple-system, sans-serif">输出：命中文件的虚拟路径</text>
+    <text x="68" y="252" font-size="12.5" fill="#185FA5" font-family="-apple-system, sans-serif">速度：快（只读目录）</text>
+    <text x="68" y="282" font-size="12.5" fill="#185FA5" font-family="-apple-system, sans-serif">适合：记得文件名 / 后缀</text>
+    <text x="68" y="312" font-size="12.5" fill="#185FA5" font-family="-apple-system, sans-serif">demo：**/*.py → utils.py, main.py</text>
+  </g>
+
+  <!-- 右：grep -->
+  <g>
+    <rect x="350" y="60" width="280" height="270" rx="10" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.5"/>
+    <text x="490" y="86" text-anchor="middle" font-size="15" font-weight="500" fill="#085041" font-family="-apple-system, sans-serif">检索文件内容</text>
+    <text x="490" y="108" text-anchor="middle" font-size="12.5" fill="#0F6E56" font-family="Menlo, monospace">grep_search</text>
+    <text x="368" y="142" font-size="12.5" fill="#0F6E56" font-family="-apple-system, sans-serif">输入：要找的词/正则 如 redis</text>
+    <text x="368" y="172" font-size="12.5" fill="#0F6E56" font-family="-apple-system, sans-serif">机制：打开文件 逐行扫文本</text>
+    <text x="368" y="192" font-size="12.5" fill="#0F6E56" font-family="-apple-system, sans-serif">　　　(可加 include 限定后缀)</text>
+    <text x="368" y="222" font-size="12.5" fill="#0F6E56" font-family="-apple-system, sans-serif">输出：file:line:content(看模式)</text>
+    <text x="368" y="252" font-size="12.5" fill="#0F6E56" font-family="-apple-system, sans-serif">速度：读内容(rg 很快)</text>
+    <text x="368" y="282" font-size="12.5" fill="#0F6E56" font-family="-apple-system, sans-serif">适合：只记得里面某段字</text>
+    <text x="368" y="312" font-size="12.5" fill="#0F6E56" font-family="-apple-system, sans-serif">demo：redis → 3 个文件命中</text>
+  </g>
+
+  <text x="340" y="40" text-anchor="middle" font-size="13" fill="#5F5E5A" font-family="-apple-system, sans-serif">同一个文件集合，两种检索“看到的东西”完全不同</text>
+</svg>
+</div>
+</body>
+</html>

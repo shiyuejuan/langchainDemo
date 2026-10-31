@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>第 09 章 · 66 SqliteSaver：把对话保存到数据库</title>
+<style>
+  body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+         max-width: 920px; margin: 28px auto; padding: 0 18px; line-height: 1.7;
+         color: #1d1d1f; background: #fff; }
+  h1 { font-size: 26px; border-bottom: 3px solid #2d6cdf; padding-bottom: 8px; }
+  h2 { font-size: 20px; margin-top: 34px; color: #2d6cdf; }
+  h3 { font-size: 16px; margin-top: 22px; color: #444; }
+  code { background: #f2f3f5; padding: 2px 6px; border-radius: 4px;
+         font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 13px; }
+  pre { background: #1e1e2e; color: #d4d4d4; padding: 14px 16px; border-radius: 10px;
+        overflow-x: auto; font-size: 13px; line-height: 1.55;
+        font-family: "SF Mono", Menlo, Consolas, monospace; }
+  pre .c { color: #6a9955; }
+  pre .k { color: #569cd6; }
+  pre .s { color: #ce9178; }
+  pre .f { color: #dcdcaa; }
+  .card { background: #f7f9ff; border: 1px solid #d6e2ff; border-radius: 12px;
+          padding: 14px 18px; margin: 16px 0; }
+  .out { background: #0f1a0f; color: #9be09b; border-radius: 10px; padding: 14px 16px;
+         font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 12.5px;
+         overflow-x: auto; white-space: pre; line-height: 1.55; }
+  table { border-collapse: collapse; width: 100%; margin: 16px 0; font-size: 14px; }
+  th, td { border: 1px solid #d0d7de; padding: 8px 10px; text-align: left; }
+  th { background: #eef2ff; }
+  .tag { display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: 12px; }
+  .blue { background: #e3f0ff; color: #1a5fd0; }
+  .green { background: #e4f7e8; color: #1a8a3a; }
+  .orange { background: #fdeede; color: #c9701a; }
+  .red { background: #fde8e8; color: #c0392b; }
+  .step { display: flex; gap: 12px; align-items: flex-start; margin: 12px 0;
+          border-left: 4px solid #2d6cdf; padding: 6px 0 6px 14px; }
+  .step b { color: #2d6cdf; }
+  .warn { background: #fff7e6; border: 1px solid #ffe08a; border-radius: 10px;
+          padding: 12px 16px; margin: 16px 0; }
+</style>
+</head>
+<body>
+<h1>第 09 章 · 66 SqliteSaver：把对话保存到数据库</h1>
+
+<p>这节课把 59 课计数器的 <code>InMemorySaver</code> 换成 <code>SqliteSaver</code>，专门验证一句话：
+<b>对话和状态真的落到磁盘文件里，进程退出后再打开，记忆还在。</b>
+这正是 57 课我们画的 RAM（蓝）/磁盘（绿）流程图的"绿色那一步"。</p>
+
+<div class="card">
+<b>为什么需要它（先说问题）</b><br>
+前面所有 demo 用的 <code>InMemorySaver</code> 把 checkpoint 存在 <b>内存（RAM）</b> 里。
+进程一退出（关终端、关电脑、重启服务），内存清零，记忆全没。
+<code>SqliteSaver</code> 把同样的东西写进一个 <b>.sqlite 文件</b>，进程重启后文件还在，记忆就还在。
+</div>
+
+<h2>1. 真实 API（查源码确认，不是猜）</h2>
+<pre><span class="c"># 安装（1.x 拆成了独立可选包，默认不装）：</span>
+<span class="c"># uv pip install langgraph-checkpoint-sqlite</span>
+
+<span class="k">from</span> langgraph.checkpoint.sqlite <span class="k">import</span> SqliteSaver
+
+<span class="c"># from_conn_string 是【上下文管理器】（@contextmanager）</span>
+<span class="k">with</span> SqliteSaver.<span class="f">from_conn_string</span>(<span class="s">"checkpoints.sqlite"</span>) <span class="k">as</span> saver:
+    agent = create_agent(model=llm, tools=[...], checkpointer=saver)
+    <span class="c"># with 块结束自动关连接，但 .sqlite 文件留在磁盘</span>
+
+<span class="c"># 也支持内存模式（和 InMemorySaver 等价，进程退出即失）：</span>
+<span class="c"># with SqliteSaver.from_conn_string(":memory:") as saver:</span></pre>
+
+<p>源码里的关键签名（已读）：</p>
+<pre><span class="k">@classmethod</span>
+<span class="k">@contextmanager</span>
+<span class="k">def</span> <span class="f">from_conn_string</span>(cls, conn_string: str) -&gt; Iterator[SqliteSaver]:
+    <span class="k">with</span> closing(sqlite3.connect(conn_string, check_same_thread=False)) <span class="k">as</span> conn:
+        <span class="k">yield</span> cls(conn)</pre>
+
+<div class="warn">
+<b>注意两点：</b>
+<ul>
+<li><code>from_conn_string</code> 返回的是 <b>上下文管理器</b>，必须用 <code>with</code> 包起来用；
+    文件里直接写 <code>saver = SqliteSaver.from_conn_string(...)</code> 然后不用 <code>with</code> 也行，但要自己管连接关闭。</li>
+<li><code>check_same_thread=False</code> 是框架内置的，解决 SQLite 多线程报错，不用你操心。</li>
+</ul>
+</div>
+
+<h2>2. 换后端只改一行</h2>
+<p>短期记忆三件套（State + Checkpointer + Thread ID）里，<b>只有 Checkpointer 换了</b>，其余完全不变：</p>
+<table>
+<tr><th>对比</th><th>内存版（59 课）</th><th>磁盘版（本课）</th></tr>
+<tr><td>Checkpointer</td><td><code>InMemorySaver()</code></td><td><code>SqliteSaver.from_conn_string("x.sqlite")</code></td></tr>
+<tr><td>state / 工具 / prompt</td><td colspan="2" style="text-align:center">完全一样（MyState + bump 工具）</td></tr>
+<tr><td>thread_id 寻址</td><td colspan="2" style="text-align:center">完全一样（<code>{"configurable":{"thread_id":"t1"}}</code>）</td></tr>
+<tr><td>进程退出后</td><td><span class="tag red">记忆全丢</span></td><td><span class="tag green">文件留存，记忆还在</span></td></tr>
+</table>
+<p>结论：<b>SqliteSaver 和 InMemorySaver 都是 <code>BaseCheckpointSaver</code> 子类，接口完全一致</b>，
+所以"短期记忆变长期（落盘）"在生产里往往就是改这一行。</p>
+
+<h2>3. 实跑证据：进程重启后记忆还在</h2>
+
+<div class="step"><span><b>阶段一</b></span><span>第一次运行，连问 3 次，counter 累加，数据写进 .sqlite 文件。
+此时即便进程没结束，文件已经 126976 bytes 了。</span></div>
+
+<div class="step"><span><b>阶段二</b></span><span>模拟"进程重启"：阶段一的 <code>with</code> 已关闭（连接断开），
+我们<b>重新打开同一个文件</b>，并造一个<b>全新的 saver2 + 全新 agent2</b>——完全不依赖阶段一的内存。
+什么 invoke 都没做，直接读，<b>counter 立刻 = 3</b>（从磁盘加载）。再问第 4 次 → <b>counter = 4</b>（接着 3）。</span></div>
+
+<div class="step"><span><b>对照</b></span><span>全新 <code>InMemorySaver</code> 读同一线程 → <code>None</code>，证明内存里确实啥都没有。</span></div>
+
+<div class="out">==================== 阶段一：第一次运行，对话写到 .sqlite 文件 ====================
+  [阶段一结束后（在 with 块内读）] counter=3 | messages 条数=12
+
+此时磁盘上数据库文件：checkpoints_demo.sqlite  大小=126976 bytes
+
+==== 阶段二：模拟进程重启 —— 重新打开同一个 .sqlite 文件 ====
+数据库文件还在吗：True  大小=126976 bytes
+  [重启后立即读（没做任何 invoke）] counter=3 | messages 条数=12
+  [重启后第 4 次 invoke 之后] counter=4 | messages 条数=16
+
+==== 对照实验：全新 InMemorySaver 读同一个 thread_id ====
+  [全新 InMemorySaver] get_tuple → None（没有任何 checkpoint）
+
+==== 阶段三：直接用 sqlite3 打开文件，看数据库里的表 ====
+数据库里的表： ['checkpoints', 'writes']
+checkpoints 表（按线程统计记录数）： [('t1', 20)]</div>
+
+<p><b>怎么读这段输出：</b></p>
+<ul>
+<li><code>counter=3 → 4</code>：重启后第 4 次 invoke 是在"3"的基础上 +1，而不是从 0 重来。
+    这证明 counter 这个 <b>自定义 state 字段</b>也跟着 checkpoint 落盘了，不只是 messages。</li>
+<li><code>全新 InMemorySaver → None</code>：对照组，说明"能读到 3"不是因为缓存，而是文件里真有数据。</li>
+<li><code>checkpoints / writes</code> 两张表：框架把"每个线程的快照"存在 <code>checkpoints</code>，
+    把"工具的中间写入"存在 <code>writes</code>。t1 有 20 条记录（4 轮对话 × 5 个写入点）。</li>
+</ul>
+
+<h2>4. 这到底是不是"长期记忆"？</h2>
+<table>
+<tr><th>维度</th><th>SqliteSaver（本课）</th><th>store（47/65 课）</th></tr>
+<tr><td>存什么</td><td>每个 thread 的<b>对话快照</b>（state 全量）</td><td>任意键值（用户偏好等）</td></tr>
+<tr><td>隔离单位</td><td>按 <code>thread_id</code> 隔离</td><td>按 <code>namespace</code> 组织，跨线程共享</td></tr>
+<tr><td>进程重启</td><td><span class="tag green">文件留存，记得</span></td><td>内存版不留存；换持久化后端才留存</td></tr>
+<tr><td>典型用途</td><td>单段对话的"短期记忆"（不丢）</td><td>跨会话的"长期记忆"（用户档案）</td></tr>
+</table>
+<p>所以：<b>SqliteSaver 解决的是"短期记忆别因为重启而丢"</b>（同线程历史不灭）；
+<b>store 解决的是"跨所有会话长期记住某人"</b>。两者职责不同，常配合使用。</p>
+
+<h2>5. 几个实战提醒</h2>
+<ul>
+<li><b>文件位置</b>：<code>from_conn_string("checkpoints.sqlite")</code> 是相对路径，文件生成在"运行脚本的目录"。
+    生产里建议写绝对路径，并把它加入 .gitignore（别把用户对话提交进仓库）。</li>
+<li><b>并发</b>：SQLite 是单文件库，多个进程同时写同一文件会锁。生产高并发建议换
+    <code>langgraph-checkpoint-postgres</code>（Postgres 后端，API 一样只换一行）。</li>
+<li><b>清理</b>：想从头开始，删掉 .sqlite 文件即可（本课 demo 开头就 <code>os.remove(DB)</code> 保证每次干净）。</li>
+<li><b>不是加密</b>：.sqlite 是明文数据库，敏感对话注意权限或加密。</li>
+</ul>
+
+<div class="card">
+<b>一句话总结</b><br>
+短期记忆三件套（State + Checkpointer + Thread ID）里，把 <code>InMemorySaver</code> 换成
+<code>SqliteSaver.from_conn_string("xxx.sqlite")</code>，对话和自定义字段就落盘了；
+进程重启后重新打开同一文件，历史还在——生产里"短期记忆变长期（不丢）"往往就是这一行的事。
+要"跨会话记住某个人"，那是 store 的活儿，不是 checkpointer 的。
+</div>
+
+<p style="margin-top:30px;color:#888;font-size:13px">
+配套可跑文件：<code>66-sqlite-saver-demo.py</code>（<code>python3 66-sqlite-saver-demo.py</code> 直接跑，
+会生成并读取 <code>checkpoints_demo.sqlite</code>）。
+</p>
+</body>
+</html>

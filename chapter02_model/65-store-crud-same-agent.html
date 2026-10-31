@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>第65讲 · 同一个 agent 内 store 的增删改</title>
+<style>
+  :root{
+    --bg:#f6f8fb; --card:#ffffff; --ink:#1f2933; --muted:#5b6b7b;
+    --line:#e3e9f0; --state:#2563eb; --state-bg:#eaf1ff;
+    --ctx:#d9480f; --ctx-bg:#fff1e8; --store:#6d28d9; --store-bg:#f1ebff;
+    --ok:#0f7b4f; --ok-bg:#e7f6ee; --bad:#c0392b; --bad-bg:#fdecea;
+    --code:#0b2545; --code-bg:#f3f5f9;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:-apple-system,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif;
+    line-height:1.7;padding:28px}
+  .wrap{max-width:960px;margin:0 auto}
+  h1{font-size:24px;margin:0 0 4px}
+  h2{font-size:19px;margin:30px 0 10px;padding-left:10px;border-left:4px solid var(--store)}
+  .sub{color:var(--muted);margin:0 0 18px;font-size:14px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;
+    padding:16px 18px;margin:14px 0;box-shadow:0 1px 2px rgba(20,40,80,.04)}
+  pre{background:var(--code-bg);color:var(--code);border:1px solid var(--line);
+    border-radius:10px;padding:12px 14px;overflow:auto;font-size:13px;
+    font-family:"SF Mono",Menlo,Consolas,monospace;line-height:1.55}
+  code{background:var(--code-bg);padding:1px 6px;border-radius:5px;
+    font-family:"SF Mono",Menlo,Consolas,monospace;font-size:12.5px}
+  .tag{display:inline-block;font-size:12px;font-weight:700;padding:2px 9px;
+    border-radius:20px;margin-right:6px}
+  .t-state{background:var(--state-bg);color:var(--state)}
+  .t-ctx{background:var(--ctx-bg);color:var(--ctx)}
+  .t-store{background:var(--store-bg);color:var(--store)}
+  .t-ok{background:var(--ok-bg);color:var(--ok)}
+  .t-bad{background:var(--bad-bg);color:var(--bad)}
+  table{border-collapse:collapse;width:100%;font-size:13.5px;margin:6px 0}
+  th,td{border:1px solid var(--line);padding:8px 10px;text-align:left;vertical-align:top}
+  th{background:var(--store-bg);color:var(--store)}
+  .proof{background:var(--ok-bg);border:1px solid #bfe6d2;color:#0c3d28;
+    border-radius:10px;padding:12px 14px;font-size:13px;font-family:"SF Mono",Menlo,monospace}
+  .warn{background:var(--bad-bg);border:1px solid #f3c2bd;color:#7a1f17;
+    border-radius:10px;padding:12px 14px;font-size:13.5px}
+  .note{color:var(--muted);font-size:13px}
+  ul{margin:8px 0;padding-left:20px}
+  li{margin:4px 0}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>第65讲 · 同一个 agent 内，store 的「增删改」</h1>
+<p class="sub">文件：<code>65-store-crud-same-agent.py</code>（已实跑，含 store 真身打印）｜ 对照：<code>60/61</code> context、<code>62/63</code> state</p>
+
+<div class="card">
+<h2 style="border-color:var(--store);margin-top:6px">直接回答：store 增删改全部「运行时动态可控」，且跨线程共享</h2>
+<table>
+<thead><tr><th>操作</th><th>API</th><th>同一 agent 内</th></tr></thead>
+<tbody>
+<tr><td><b>增</b></td><td><code>store.put(ns, key, {...})</code></td><td><span class="tag t-ok">✅ 随时写新键</span></td></tr>
+<tr><td><b>改</b></td><td>同 <code>ns+key</code> 再 <code>put</code></td><td><span class="tag t-ok">✅ 覆盖整条</span>（局部改要 get→改→put）</td></tr>
+<tr><td><b>查</b></td><td><code>store.get(ns, key)</code> / <code>store.search(ns)</code></td><td><span class="tag t-ok">✅</span></td></tr>
+<tr><td><b>删</b></td><td><code>store.delete(ns, key)</code></td><td><span class="tag t-ok">✅ 随时删键</span></td></tr>
+</tbody>
+</table>
+<p><b>和 state/context 的根本区别</b>：state/context 的 schema 在编译期冻结，属性增删运行时做不到；<b>store 没有 schema，是一个纯键值档案柜，运行时想加哪条、删哪条都行</b>，而且<b>不按 thread 隔离、跨会话共享</b>（这才是"长期记忆"）。</p>
+</div>
+
+<h2>先看怎么把 store 挂进 agent</h2>
+<div class="card">
+<pre>from langgraph.store.memory import InMemoryStore
+
+store = InMemoryStore()          # 独立对象，同一进程里跨线程共享
+
+agent = create_agent(
+    model=llm, tools=[upsert_pref, read_pref, list_prefs, del_pref],
+    system_prompt="根据用户要求调用对应工具...",
+    state_schema=MessagesState,
+    store=store,                 # ← store 从 create_agent 的 store= 参数挂进去
+    checkpointer=InMemorySaver(),
+)</pre>
+<p class="note">工具里可以用 <code>runtime.store</code> 访问（47 课），也可以直接用模块里的 <code>store</code> 对象——因为是同一个引用。本 demo 用后者，代码更直观。</p>
+</div>
+
+<h2>① 增：<code>store.put(ns, key, value)</code> —— 随时写新记录</h2>
+<div class="card">
+<pre>ns = ("users", "u1")
+store.put(ns, "prefs", {"hobby": "天文", "lang": "中文"})</pre>
+<p>并且<b>写在一个线程，另一个线程立刻能读到</b>（store 不按 thread 隔离）：</p>
+<div class="proof">实跑输出（store 真身，不靠模型复述）：
+[store 真身] u1/prefs = {'hobby': '天文', 'lang': '中文'}
+t_read (不同线程!) 调 read_pref → 读到的也是 {'hobby': '天文', 'lang': '中文'}
+  ← 另一个线程读到了：store 跨线程共享（state 做不到）</div>
+<p class="note">对比：state 是<b>按 thread_id 隔离</b>的——t1 写的 state，t2 读不到。store 恰恰相反，天生用来"跨会话记住"。</p>
+</div>
+
+<h2>② 改：同 <code>ns+key</code> 再 put = 覆盖整条（⚠️ 没有局部更新）</h2>
+<div class="card">
+<pre># 错误示范：直接 put 一个只有 lang 的 dict → 整条被替换，hobby 丢
+store.put(("users","u1"), "prefs", {"lang": "英文"})</pre>
+<div class="proof">实跑输出：
+[store 真身] u1/prefs = {'lang': '英文'}      ← hobby 没了（整条覆盖）</div>
+<p>正确做法是<b>先 get 出来 → 改 → 整体 put 回去</b>（这就是 demo 里 <code>upsert_pref</code> 干的事）：</p>
+<pre>item = store.get(ns, "prefs")
+val = dict(item.value) if item else {}   # 先取旧值
+val["hobby"] = "天文"                     # 改
+store.put(ns, "prefs", val)              # 整体写回</pre>
+<div class="proof">恢复后 [store 真身] u1/prefs = {'lang': '中文', 'hobby': '天文'}  ← 两字段都在</div>
+<div class="warn"><b>坑（48/49 课也讲过）</b>：<code>put</code> 是<b>整条覆盖</b>，不是字典 merge。想"只改一个字段"，必须自己 get→改→put，否则其他字段被抹掉。</div>
+</div>
+
+<h2>③ 查：<code>get</code> 单条 / <code>search</code> 批量</h2>
+<div class="card">
+<pre>store.get(("users","u1"), "prefs")    # 单条，返回 Item 或 None → .value
+store.search(("users",))              # 前缀批量，返回 list[Item]</pre>
+<div class="proof">实跑输出：
+[store 真身] search(('users',)) =
+  [(('users','u1'), 'prefs', {'lang':'中文', 'hobby':'天文'})]</div>
+<p class="note"><code>search</code> 的 namespace 是<b>前缀查询</b>：给 <code>("users",)</code> 会列出 users 下所有用户的记录；给 <code>("users","u1")</code> 只列 u1 的。</p>
+</div>
+
+<h2>④ 删：<code>store.delete(ns, key)</code> —— 删后再查为 None</h2>
+<div class="card">
+<pre>store.delete(("users","u1"), "prefs")</pre>
+<div class="proof">实跑输出：
+[store 真身] get u1/prefs = None   ← None 表示已删</div>
+<p class="note">删的是<b>单条</b>（ns + key 定位）。删整个 namespace 需要遍历 search 出来的每条去 delete（store 没有"删目录"API）。</p>
+</div>
+
+<h2>⑤ 三种上下文/记忆的增删改总对照</h2>
+<div class="card">
+<table>
+<thead><tr><th>维度</th><th><span class="tag t-ctx">context</span></th><th><span class="tag t-state">state</span></th><th><span class="tag t-store">store</span></th></tr></thead>
+<tbody>
+<tr><td><b>形态</b></td><td>单个对象（dataclass）</td><td>TypedDict（字段=通道）</td><td>键值档案柜（ns+key→dict）</td></tr>
+<tr><td><b>增属性/记录</b></td><td><span class="tag t-bad">❌</span> schema 冻结</td><td><span class="tag t-bad">❌</span> 未声明键被忽略</td><td><span class="tag t-ok">✅</span> 随时 put 新 key</td></tr>
+<tr><td><b>改值</b></td><td><span class="tag t-ok">✅</span> 但需重传实例</td><td><span class="tag t-ok">✅</span> Command 写回，记住</td><td><span class="tag t-ok">✅</span> put 覆盖整条</td></tr>
+<tr><td><b>删属性/记录</b></td><td><span class="tag t-bad">❌</span> 只能不传</td><td><span class="tag t-bad">❌</span> 只能覆盖值</td><td><span class="tag t-ok">✅</span> delete 真删</td></tr>
+<tr><td><b>跨 invoke 记住</b></td><td><span class="tag t-bad">❌</span> 不记</td><td><span class="tag t-ok">✅</span> 同 thread 记</td><td><span class="tag t-ok">✅</span> 跨 thread/跨会话</td></tr>
+<tr><td><b>隔离性</b></td><td>无状态</td><td>按 thread_id 隔离</td><td><b>全局共享</b></td></tr>
+<tr><td><b>典型用途</b></td><td>本次调用的环境配置</td><td>单次会话的白板/进度</td><td>长期用户偏好/知识</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="card">
+<h2 style="border-color:var(--store);margin-top:6px">小结</h2>
+<ul>
+<li><b>同一个 agent 内，store 的增/改/查/删全部运行时动态可控</b>——这是它和 state/context 最大的不同（后两者属性增删被 schema 冻结）。</li>
+<li><b>store 跨线程共享</b>：一个 thread 写，另一个 thread 立刻读到；state 是 thread 隔离的，读不到。这就是"长期记忆 vs 短期记忆"的分水岭。</li>
+<li><b>改要小心</b>：<code>put</code> 是整条覆盖，不是 merge；要局部改必须 <code>get → 改 → put</code>。</li>
+<li>记住三条键规则（48/49 课）：namespace 是<b>元组</b>（多级路径）、key 是<b>字符串</b>、value 必须是<b>dict</b>。</li>
+</ul>
+<p class="note">下一步可选：① SqliteSaver 磁盘持久化（接 57 流程图）② Summarization 压缩历史 ③ 把 store 换成可持久化后端（跨进程长期记忆）。说一个我接着讲。</p>
+</div>
+
+</div>
+</body>
+</html>

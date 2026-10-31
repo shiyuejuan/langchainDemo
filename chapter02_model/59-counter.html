@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>59 · 案例②：按线程计数（counter 存进 state 跨 invoke 累加）</title>
+<style>
+  body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+         max-width: 900px; margin: 0 auto; padding: 26px 20px; color: #1e293b; line-height: 1.85; background: #f8fafc; }
+  h1 { font-size: 22px; border-bottom: 3px solid #059669; padding-bottom: 10px; }
+  h2 { font-size: 18px; margin-top: 28px; color: #047857; }
+  .code { background: #0f172a; color: #e2e8f0; padding: 14px 16px; border-radius: 10px;
+          overflow-x: auto; font-size: 12.8px; line-height: 1.65; font-family: "SF Mono", Menlo, monospace; }
+  .code .cm { color: #64748b; } .code .y { color: #fde047; } .code .g { color: #86efac; }
+  .card { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px 20px; margin: 14px 0; }
+  .green { border-left: 5px solid #059669; }
+  .blue { border-left: 5px solid #2563eb; }
+  .amber { border-left: 5px solid #d97706; }
+  .out { background: #0f172a; color: #a7f3d0; padding: 12px 14px; border-radius: 8px;
+         font-size: 13px; line-height: 1.7; font-family: "SF Mono", Menlo, monospace; white-space: pre-wrap; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; background:#fff; font-size: 14px; }
+  th, td { border:1px solid #cbd5e1; padding:8px 11px; text-align:left; vertical-align:top; }
+  th { background:#ecfdf5; }
+  code { background:#eef2ff; color:#3730a3; padding:1px 6px; border-radius:4px; font-size:12.5px; }
+  .tip { background:#fffbeb; border:1px solid #fcd34d; border-radius:8px; padding:12px 16px; font-size:14px; }
+</style>
+</head>
+<body>
+
+<h1>59 · 案例②：按线程计数（和 user_name 不同的另一种短期记忆）</h1>
+<p>57/58 课讲了“存哪/存什么”。你点名要一个<b>不存 user_name</b> 的可跑案例——这就是：
+<b>同一个 thread_id 每次对话，state 里一个 <code>counter</code> 自动 +1，跨 invoke 持续累加</b>。
+和 user_name（每次靠输入传）不同，这是 state 里一个<b>会自己增长</b>的字段，靠 checkpointer 存住。</p>
+
+<h2>一、真实跑出来的结果（59-counter-demo.py）</h2>
+<div class="out">===== 同一个 thread_id=t1，连问 3 次 =====
+第 1 次 invoke 后 → state.counter = 1
+第 2 次 invoke 后 → state.counter = 2
+第 3 次 invoke 后 → state.counter = 3
+
+===== 换个线程 thread_id=t2（全新记忆，从头开始） =====
+t2 第 1 次 invoke 后 → state.counter = 1   （不是 4，而是 0+1）
+
+===== 回到 t1（记忆还在，继续累加） =====
+t1 第 4 次 invoke 后 → state.counter = 4   （接着 3 变成 4，证明 t1 记忆没丢）</div>
+<div class="card green">
+  <p>看：<b>同一线程 t1 累计 1→2→3→4</b>；换 t2 立刻从 1 重来（隔离）；回到 t1 还能接着 3→4（记忆没丢）。
+  这就是“短期记忆 + 线程隔离”最直观的证据，而且数据不是 user_name，是一个<b>动态累加的计数器</b>。</p>
+</div>
+
+<h2>二、关键代码（三处和 47 课不同）</h2>
+<div class="code"><span class="cm"># ① 自定义 state：在 messages 之外加一个 counter，初始 0</span>
+<span class="kw">class</span> MyState(MessagesState):
+    counter: int = 0
+
+<span class="cm"># ② 工具：读当前 counter，+1，写回 state（核心机制）</span>
+<span class="kw">@tool</span>
+<span class="kw">def</span> bump(question: str, runtime: ToolRuntime) -> Command:
+    cur = runtime.state.get(<span class="y">"counter"</span>, 0)
+    <span class="kw">return</span> Command(update={
+        <span class="y">"messages"</span>: [ToolMessage(content=f"计数已更新为 {cur + 1}",
+                                 tool_call_id=runtime.tool_call_id)],  <span class="cm"># 对账用的工具消息</span>
+        <span class="y">"counter"</span>: cur + 1,                                          <span class="cm"># 写回 state 的 counter 字段</span>
+    })
+
+<span class="cm"># ③ 组装时挂上 state_schema + checkpointer（和 47 课一样）</span>
+agent = create_agent(..., state_schema=MyState, checkpointer=InMemorySaver())</div>
+
+<h2>三、这个案例新学到一个机制：工具怎么“写回 state”</h2>
+<div class="card blue">
+  <p>47 课的 <code>my_info</code> 工具只是<b>读</b> state（<code>runtime.state.get(...)</code>）。
+  本案例的工具要<b>写</b> state——靠返回 <code>langgraph.types.Command</code>：</p>
+  <ul>
+    <li><code>Command(update={通道名: 值})</code>：按通道名写回。我们写了两个通道——
+      <code>"counter"</code> 写数字，<code>"messages"</code> 通道放一条 <code>ToolMessage</code>（框架要求工具调用必须对账，否则报“缺 ToolMessage”）；</li>
+    <li>工具里用 <code>runtime.tool_call_id</code> 拿到本次工具调用的 id，填进 ToolMessage 完成对账。</li>
+  </ul>
+  <p>这是 47 课没覆盖的“工具→写 state”正路子，短期记忆里凡是“要改、要累计”的数据都用它。</p>
+</div>
+
+<h2>四、和 user_name 案例对照：同一个 checkpointer，两种用法</h2>
+<table>
+  <tr><th></th><th>47 课 user_name</th><th>本案例 counter</th></tr>
+  <tr><td>数据怎么进 state</td><td>每次 invoke 的<b>输入</b>传进来</td><td>工具运行时<b>计算后写回</b></td></tr>
+  <tr><td>会自己变吗</td><td>不会（你传啥就是啥）</td><td>会（每次 +1 累加）</td></tr>
+  <tr><td>工具怎么用 state</td><td>只读 <code>get</code></td><td>读 + <code>Command</code> 写回</td></tr>
+  <tr><td>共同前提</td><td colspan="2">都要 <code>state_schema</code> + <code>checkpointer</code> + 同一 <code>thread_id</code> 才能跨 invoke 存住</td></tr>
+</table>
+
+<div class="tip">📌 <b>一句话：</b>短期记忆不只是“记个名字”，还能存任意会演变的数据（计数、积分、进度…）。
+只要把它放进 state_schema，并用 checkpointer + thread_id 存住，工具就能量化地改它、跨对话累加。<br>
+📌 工具写回 state 的标准姿势：<code>return Command(update={"通道名": 值, "messages":[ToolMessage(...)]})</code>。</div>
+
+</body>
+</html>

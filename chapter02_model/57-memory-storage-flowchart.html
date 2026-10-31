@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>57 · 短期记忆 · 数据存储位置流程图</title>
+<style>
+  body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+         max-width: 900px; margin: 0 auto; padding: 26px 18px; color: #1e293b; line-height: 1.7; background: #f8fafc; }
+  h1 { font-size: 22px; border-bottom: 3px solid #d97706; padding-bottom: 10px; }
+  h2 { font-size: 17px; margin-top: 28px; color: #b45309; }
+  .flow { position: relative; padding-left: 40px; }
+  .flow::before { content:""; position:absolute; left:18px; top:8px; bottom:8px; width:3px; background:#cbd5e1; }
+  .node { position: relative; background:#fff; border:1px solid #e2e8f0; border-radius:10px;
+          padding:12px 16px; margin:14px 0; }
+  .node::before { content:""; position:absolute; left:-25px; top:18px; width:14px; height:14px;
+                  background:#2563eb; border-radius:50%; border:3px solid #fff; box-shadow:0 0 0 2px #2563eb; }
+  .node .step { font-weight:700; color:#1d4ed8; }
+  .arrow { text-align:center; color:#94a3b8; font-size:18px; margin:-4px 0; position:relative; left:-1px; }
+  .ram { border-left:5px solid #2563eb; }
+  .disk { border-left:5px solid #059669; }
+  .key { border-left:5px solid #d97706; }
+  .branch { margin:6px 0 6px 16px; padding:10px 14px; border-radius:8px; }
+  .legend { display:flex; gap:18px; flex-wrap:wrap; margin:14px 0; }
+  .chip { display:flex; align-items:center; gap:6px; font-size:14px; }
+  .dot { width:14px; height:14px; border-radius:50%; }
+  .tip { background:#fffbeb; border:1px solid #fcd34d; border-radius:8px; padding:12px 16px; font-size:14px; margin-top:18px; }
+  code { background:#eef2ff; color:#3730a3; padding:1px 6px; border-radius:4px; font-size:13px; }
+  .out { background:#0f172a; color:#a7f3d0; padding:12px 14px; border-radius:8px; font-size:13px; font-family:Menlo,monospace; white-space:pre-wrap; }
+</style>
+</head>
+<body>
+
+<h1>57 · 短期记忆 · 数据存储位置流程图</h1>
+<p>重点回答：<b>“数据到底存在哪？”</b>——State、Checkpointer、Thread ID 三个角色，物理上数据落点不同。</p>
+
+<div class="legend">
+  <div class="chip"><span class="dot" style="background:#2563eb"></span> RAM 进程内存（程序关就丢）</div>
+  <div class="chip"><span class="dot" style="background:#059669"></span> 磁盘文件（程序关还在）</div>
+  <div class="chip"><span class="dot" style="background:#d97706"></span> 钥匙（不是仓库）</div>
+</div>
+
+<div class="flow">
+  <div class="node">
+    <span class="step">① 你敲代码</span><br>
+    <code>agent.invoke({"messages":[...]}, config={"thread_id":"t1"})</code>
+  </div>
+  <div class="arrow">▼</div>
+
+  <div class="node ram">
+    <span class="step">② State 字典在 RAM 里生成</span><br>
+    这是一次运行的内存中的字典：<code>messages</code> 列表 + 你加的字段（如 <code>user_name</code>）。<br>
+    <b>物理位置：进程内存（RAM）</b>，运行结束本就该清空——但有了下面第④步才留得住。
+  </div>
+  <div class="arrow">▼</div>
+
+  <div class="node">
+    <span class="step">③ agent 跑循环（model→tool→model…）</span><br>
+    每跑完一个“步”，就把当前 State 交给 Checkpointer 处理。
+  </div>
+  <div class="arrow">▼</div>
+
+  <div class="node key">
+    <span class="step">④ Checkpointer（cp 对象）把 State 拍快照</span><br>
+    <code>cp</code> 用 <code>thread_id="t1"</code> 当钥匙，把快照存进“存储后端”。<br>
+    <b>Thread ID 只是钥匙/编号，本身不存数据。</b>
+  </div>
+  <div class="arrow">▼</div>
+
+  <div class="node">
+    <span class="step">⑤ 存储后端（决定数据物理落点）</span>
+    <div class="branch ram" style="background:#eff6ff">
+      <b>InMemorySaver</b>（55/56 课用的）→ 快照存进 <b>RAM 内存</b><br>
+      → 程序一退出，内存清空，全忘。这就是“短期”。
+    </div>
+    <div class="branch disk" style="background:#ecfdf5">
+      <b>SqliteSaver.from_conn_string("mem.db")</b>（换一行代码即可）→ 快照存进 <b>磁盘 .db 文件</b><br>
+      → 程序退出仍在，下次还能读。这就变成“长期”。
+    </div>
+  </div>
+  <div class="arrow">▼</div>
+
+  <div class="node key">
+    <span class="step">⑥ 下次 invoke（同一个 thread_id="t1"）</span><br>
+    <code>cp</code> 用同一把钥匙 <code>"t1"</code> 去存储后端取出快照 → 铺回 State。<br>
+    （56 课实跑：返回 messages 从 2 条变成 4 条，旧 2 条就是这时取回的）
+  </div>
+  <div class="arrow">▼</div>
+
+  <div class="node ram">
+    <span class="step">⑦ 模型读取 State 里的 messages 续聊</span><br>
+    注意：模型只看到 <code>messages</code>，自定义字段（如 user_name）不会自动进 prompt（54 课）。
+  </div>
+</div>
+
+<h2>两张图对照：数据物理落点</h2>
+<div class="out">State      → 活在 RAM（单次运行的内存字典）
+Checkpointer → 决定把 State 的快照存去哪：RAM（InMemorySaver）或 磁盘（SqliteSaver）
+Thread ID  → 只是 Checkpointer 寻址用的钥匙字符串，不是仓库本身
+
+记忆“短/长”之分，只取决于 Checkpointer 用哪种后端：
+  InMemorySaver = 内存 = 短期（进程退出即失）
+  SqliteSaver   = 磁盘 = 长期（退出仍在）
+两者机制完全一样，只换“抽屉材质”。</div>
+
+<div class="tip">📌 一句话：<b>State 这张纸写在 RAM；Checkpointer 决定把纸复印一份存内存还是存磁盘；Thread ID 是标着“t1”的抽屉钥匙。</b>
+没有 Checkpointer → 纸用完就扔（金鱼脑）；有 Checkpointer 但用 InMemorySaver → 纸存内存，程序关了就没。</div>
+
+</body>
+</html>

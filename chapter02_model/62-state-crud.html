@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>第62讲 · state 的增删改（对照 context）</title>
+<style>
+  :root{
+    --bg:#f6f8fb; --card:#ffffff; --ink:#1f2933; --muted:#5b6b7b;
+    --line:#e3e9f0; --state:#2563eb; --state-bg:#eaf1ff;
+    --ctx:#d9480f; --ctx-bg:#fff1e8; --ok:#0f7b4f; --ok-bg:#e7f6ee;
+    --bad:#c0392b; --bad-bg:#fdecea; --code:#0b2545; --code-bg:#f3f5f9;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:-apple-system,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif;
+    line-height:1.7;padding:28px}
+  .wrap{max-width:960px;margin:0 auto}
+  h1{font-size:24px;margin:0 0 4px}
+  h2{font-size:19px;margin:30px 0 10px;padding-left:10px;border-left:4px solid var(--state)}
+  .sub{color:var(--muted);margin:0 0 18px;font-size:14px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;
+    padding:16px 18px;margin:14px 0;box-shadow:0 1px 2px rgba(20,40,80,.04)}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  @media(max-width:720px){.grid{grid-template-columns:1fr}}
+  pre{background:var(--code-bg);color:var(--code);border:1px solid var(--line);
+    border-radius:10px;padding:12px 14px;overflow:auto;font-size:13px;
+    font-family:"SF Mono",Menlo,Consolas,monospace;line-height:1.55}
+  code{background:var(--code-bg);padding:1px 6px;border-radius:5px;
+    font-family:"SF Mono",Menlo,Consolas,monospace;font-size:12.5px}
+  .tag{display:inline-block;font-size:12px;font-weight:700;padding:2px 9px;
+    border-radius:20px;margin-right:6px}
+  .t-state{background:var(--state-bg);color:var(--state)}
+  .t-ctx{background:var(--ctx-bg);color:var(--ctx)}
+  .t-ok{background:var(--ok-bg);color:var(--ok)}
+  .t-bad{background:var(--bad-bg);color:var(--bad)}
+  table{border-collapse:collapse;width:100%;font-size:13.5px;margin:6px 0}
+  th,td{border:1px solid var(--line);padding:8px 10px;text-align:left;vertical-align:top}
+  th{background:var(--state-bg);color:var(--state)}
+  .proof{background:var(--ok-bg);border:1px solid #bfe6d2;color:#0c3d28;
+    border-radius:10px;padding:12px 14px;font-size:13px;font-family:"SF Mono",Menlo,monospace}
+  .warn{background:var(--bad-bg);border:1px solid #f3c2bd;color:#7a1f17;
+    border-radius:10px;padding:12px 14px;font-size:13.5px}
+  .note{color:var(--muted);font-size:13px}
+  ul{margin:8px 0;padding-left:20px}
+  li{margin:4px 0}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>第62讲 · state 的增删改（对照 context）</h1>
+<p class="sub">文件：<code>62-state-crud-demo.py</code>（已实跑验证）｜ 对照：<code>60/61</code> 的 context 增删改</p>
+
+<div class="card">
+<h2 style="border-color:var(--state);margin-top:6px">先给总纲：state 和 context 在"增删改"上的本质不同</h2>
+<p>源码已证实（之前查过 <code>StateGraph.__init__</code>）：</p>
+<ul>
+<li><span class="tag t-state">state</span><b>是 TypedDict（字典形态）</b>，编译时被 <code>_add_schema</code> 拆成一条条<b>通道(channel)</b>。每个字段 = 一条通道。<b>会被 checkpointer 记住</b>（进 <code>channel_values</code>）。</li>
+<li><span class="tag t-ctx">context</span><b>是单个对象</b>（dataclass/class），编译时<b>不拆通道</b>，只当类型标注。<b>不进 checkpoint，不被记住</b>。</li>
+</ul>
+<p>所以一句话：<b>state = 字典 + 通道 + 被记住；context = 对象 + 点属性 + 不记住</b>。这决定了两者"增删改"的玩法完全不同。</p>
+</div>
+
+<h2>① 设计期增删字段（改类定义 = 加/删通道）</h2>
+<div class="card">
+<p>state 的字段在 <code>create_agent</code> 那一刻由类定义冻结（和 context 的 schema 冻结同理）：</p>
+<pre># 加一个字段 = 编译后多一条通道
+class S(MessagesState):
+    user_name: str = ""     # → 通道 user_name
+    counter: int = 0        # → 通道 counter
+    # 想再加 → 写一行 vip: bool = False；想删 → 删那一行
+# 改完类定义必须「重建 agent」，旧 checkpoint 里被删通道的值不再被读取</pre>
+<p class="note">这里和 context 一样：<b>"字段的增删"属于设计期，运行时改不了类定义</b>。但 state 多了一层"通道"概念——加字段=加通道，这是 context 没有的。</p>
+</div>
+
+<h2>② 运行时【改值】—— state 的核心能力，而且会被记住</h2>
+<div class="card">
+<p>工具用 <code>Command(update={通道名: 新值})</code> 把新值写回某条通道。关键：写回后，<b>同一个 thread_id 下一次 invoke 还能读到</b>——这是 context 做不到的（context 每次都得重传）。</p>
+<pre>@tool
+def set_name(q: str, runtime: ToolRuntime) -> Command:
+    """把用户名设置为“明明”。"""
+    return Command(update={
+        "messages": [ToolMessage(content="已将 user_name 设为 明明",
+                                 tool_call_id=runtime.tool_call_id)],
+        "user_name": "明明",
+    })
+
+# 同一个 thread_id="a" 调两次
+r1 = agentA.invoke({"messages":[...]}, config={"configurable":{"thread_id":"a"}})
+r2 = agentA.invoke({"messages":[...]}, config={"configurable":{"thread_id":"a"}})  # 这次没调工具</pre>
+<div class="proof">实跑输出：
+第 1 次 invoke 后, state['user_name'] = '明明'
+第 2 次 invoke 后, state['user_name'] = '明明'  ← 仍是明明，证明 state 被 checkpoint 记住
+（对比：context 第 2 次不传就变 None，见 60 课）</div>
+<p class="note">这是 state 和 context 最关键的差别：<b>state 的值跨 invoke 自动续命；context 的值每次都得你手动重传</b>。</p>
+</div>
+
+<h2>③ 运行时【增】一个 schema 没声明的键 —— 直接被忽略</h2>
+<div class="card">
+<p>既然 state 是字典，能不能运行时随便塞一个新键？实测：<b>不能</b>。因为通道在编译时就定死了，未声明的键不会被当通道，写了也被丢弃。</p>
+<pre>@tool
+def add_extra(q: str, runtime: ToolRuntime) -> Command:
+    """尝试写入一个 state 里没声明的字段 extra_field。"""
+    return Command(update={
+        "messages": [ToolMessage(content="尝试写入 extra_field",
+                                 tool_call_id=runtime.tool_call_id)],
+        "extra_field": "hello",    # ← 未在 class S 里声明
+    })</pre>
+<div class="proof">实跑输出：
+invoke 返回里有没有 extra_field 键: False
+checkpoint channel_values 的键: ['messages', '__pregel_tasks']
+（extra_field 既不在返回值，也不进 checkpoint —— 写了等于白写）</div>
+<p class="note">注：上面 channel_values 没显示 <code>user_name/counter</code>，是因为这是独立的 b 线程、从未写过它们；<b>写过之后自定义字段会出现在 channel_values</b>（56/58 课已验证）。结论只针对"未声明键"：<b>被忽略</b>。</p>
+</div>
+
+<h2>④ 运行时【删】—— 只能覆盖值，不能删通道</h2>
+<div class="card">
+<p>想"删掉"一个 state 字段？运行时做不到删通道，只能把值<b>覆盖成空/默认</b>。通道本身由 schema 决定，删通道只能回①的设计期。</p>
+<pre>@tool
+def clear_name(q: str, runtime: ToolRuntime) -> Command:
+    """把 user_name 覆盖为空字符串（安全做法）。"""
+    return Command(update={
+        "messages": [ToolMessage(content="已将 user_name 置空",
+                                 tool_call_id=runtime.tool_call_id)],
+        "user_name": "",    # 覆盖，不是删除
+    })</pre>
+<div class="proof">实跑输出：
+置空后 state['user_name'] = ''
+通道里仍有 user_name 键吗: True  ← 删的是"值"，通道定义还在（由 schema 决定）</div>
+<p class="note">如果你用 Python <code>del state["user_name"]</code> 想真删键——<code>runtime.state</code> 是只读快照，根本不能 del；改 state 唯一正道是 <code>Command(update=...)</code>。</p>
+</div>
+
+<h2>⑤ 一张表看全：state vs context 的增删改</h2>
+<div class="card">
+<table>
+<thead><tr><th>操作</th><th><span class="tag t-state">state</span></th><th><span class="tag t-ctx">context</span></th></tr></thead>
+<tbody>
+<tr><td><b>设计期加字段</b></td><td>类定义加一行 → 多一条通道，需重建 agent</td><td>dataclass 加一行 → 多一个属性，需重建 agent</td></tr>
+<tr><td><b>运行时改值</b></td><td><span class="tag t-ok">✅ 支持</span> Command 写回，<b>自动跨轮记住</b></td><td><span class="tag t-ok">✅ 支持</span> 重传新实例，<b>不记住</b></td></tr>
+<tr><td><b>运行时增未声明键</b></td><td><span class="tag t-bad">❌ 忽略</span> 不进通道/不进 checkpoint</td><td><span class="tag t-bad">❌ 不进 schema</span> 换实例即消失（61课）</td></tr>
+<tr><td><b>运行时删字段</b></td><td><span class="tag t-bad">❌ 不能删通道</span> 只能覆盖值（或设计期删）</td><td><span class="tag t-bad">⚠️ 别用 del 删已声明字段</span> 会崩（61课）</td></tr>
+<tr><td><b>本质</b></td><td>字典形态，字段=通道，被 checkpointer 留住</td><td>单个对象，点属性，原样透传，不记忆</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2>⑥ 一个关联坑：state 改了值 ≠ 模型看见了</h2>
+<div class="card">
+<div class="warn"><b>重要</b>：你用 <code>Command(update={"user_name":"明明"})</code> 把值写进了 state 通道，但<b>模型只认 <code>messages</code> 列表</b>（54 课核心结论）。自定义字段不会自动进 prompt。
+<ul>
+<li>想要模型"知道" <code>user_name</code>：要么用工具把它读出来写进 <code>messages</code>，要么写进 system_prompt 模板。</li>
+<li>state 的"增删改"解决的是<b>数据持久/跨轮传递</b>，不是"让模型自动感知"。别混淆。</li>
+</ul></div>
+</div>
+
+<div class="card">
+<h2 style="border-color:var(--state);margin-top:6px">小结</h2>
+<ul>
+<li><b>state 增删改的真相</b>：字段增删在设计期（改类定义+重建）；运行时只能<b>改值</b>（Command 写回，自动记住），<b>不能</b>增未声明键（被忽略）、<b>不能</b>删通道（只能覆盖值）。</li>
+<li>和 context 对照：两者"设计期增删字段"一样要重建；但 state 的<b>值被记住</b>、context 的<b>值不记住</b>——这是选 state 还是 context 的分水岭。</li>
+<li>动态键值 + 跨会话长期记住 → 那是 <b>store</b> 的活儿（put/get/search/delete，47/48/49 课），state/context 都不擅长。</li>
+</ul>
+<p class="note">下一步可选：① SqliteSaver 磁盘持久化（接 57 流程图）② Summarization 压缩历史 ③ store 长期记忆实战。说一个我接着讲。</p>
+</div>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>52 · invoke 调用块详解</title>
+<style>
+  body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+         max-width: 880px; margin: 0 auto; padding: 26px 20px; color: #1e293b; line-height: 1.9; background: #f8fafc; }
+  h1 { font-size: 23px; border-bottom: 3px solid #2563eb; padding-bottom: 10px; }
+  h2 { font-size: 18px; margin-top: 30px; color: #1d4ed8; }
+  h3 { font-size: 15px; color:#0f766e; }
+  .code { background: #0f172a; color: #e2e8f0; padding: 14px 16px; border-radius: 10px;
+          overflow-x: auto; font-size: 13px; line-height: 1.7; font-family: "SF Mono", Menlo, monospace; }
+  .code .cm { color: #64748b; } .code .y { color: #fde047; } .code .g { color: #86efac; }
+  .card { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px 20px; margin: 14px 0; }
+  .blue { border-left: 5px solid #2563eb; }
+  .green { border-left: 5px solid #059669; }
+  .amber { border-left: 5px solid #d97706; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; background:#fff; font-size: 14px; }
+  th, td { border:1px solid #cbd5e1; padding:8px 11px; text-align:left; vertical-align:top; }
+  th { background:#eff6ff; }
+  code { background:#eef2ff; color:#3730a3; padding:1px 6px; border-radius:4px; font-size:12.5px; }
+  .tip { background:#fffbeb; border:1px solid #fcd34d; border-radius:8px; padding:12px 16px; font-size:14px; }
+</style>
+</head>
+<body>
+
+<h1>52 · 这段 invoke 调用块逐行精讲</h1>
+<p>这是 47 课 demo 的“开跑”指令。前面 8 站都在准备：定义工具、挂好三套存储。这一段才是<b>把数据灌进去、让 agent 真正跑一遍</b>。</p>
+
+<h2>① 先准备两个“随身物件”</h2>
+<div class="code">CFG = {<span class="y">"configurable"</span>: {<span class="y">"thread_id"</span>: <span class="y">"t1"</span>}}
+CTX = AppContext(user_id="u-1001", env="test", db_host="db-internal:5432")</div>
+<div class="card blue">
+  <p><b>CFG —— 运行配置（含线程身份证）</b></p>
+  <p>LangGraph 的 <code>config</code> 是一个固定结构的字典：必须包一层 <code>"configurable"</code>。
+  里面最关键的 <code>thread_id="t1"</code> 就是<b>这次对话的身份证号</b>。checkpointer 靠它把 state 存进
+  “标着 t1 的抽屉”——下次还用 <code>t1</code> 来 invoke，就能从抽屉里把历史读回来（45 课机制）。
+  换 <code>t2</code> 就是另一个全新对话，互不串台。</p>
+  <p><b>CTX —— 静态工牌实例</b></p>
+  <p>用 50 课讲的 <code>@dataclass</code> 造出一张工牌：写死了 user_id / env / db_host。
+  这是“运行前就定死、运行中立了不许改”的元数据，待会儿作为 <code>context</code> 顶层传进去。</p>
+</div>
+
+<h2>② invoke 的输入：那本“第一页作业”</h2>
+<div class="code">r1 = agent.invoke(
+  {                                            <span class="cm"># ← 第 1 个位置参数：输入（必须匹配 state 结构）</span>
+    <span class="y">"messages"</span>: [{"role": "user", "content": "我是谁？我的偏好和环境是什么？"}],
+    <span class="y">"user_name"</span>: "小明",                    <span class="cm"># ① 自定义 state 键，随输入进来</span>
+  },
+  config=CFG,                                  <span class="cm"># 抽屉号 t1</span>
+  context=CTX,                                 <span class="cm"># ③ 工牌（顶层 kwargs！）</span>
+)</div>
+<div class="card green">
+  <p><b>第 1 个位置参数 = 输入字典</b>，它的键必须和 state 结构对得上（因为 <code>state_schema=MyState</code>）：</p>
+  <table>
+    <tr><th>键</th><th>是什么</th><th>进了哪</th></tr>
+    <tr><td><code>messages</code></td><td>本轮用户的新一句话，格式 <code>{role, content}</code></td>
+      <td>由 <code>add_messages</code> reducer <b>追加</b>进 state 的聊天历史</td></tr>
+    <tr><td><code>user_name</code></td><td>我们自定义的"白板"栏，值 <code>"小明"</code></td>
+      <td>写进 state["user_name"]（覆盖式更新，因为没给 reducer）</td></tr>
+  </table>
+  <p>⚠️ <b>为什么 user_name 放输入里、user_id 却放 CTX 里？</b><br>
+  user_name 是<b>动态的、随运行演变</b>的（白板）→ 属于 state，跟着输入走；
+  user_id/env/db_host 是<b>静态的、运行前定死</b>的（工牌）→ 属于 context，单独传。这就是 47 课三种上下文分工的直观体现。</p>
+</div>
+
+<h2>③ <code>config=</code> vs <code>context=</code>：两个平行的“随身包”</h2>
+<div class="card amber">
+  <p><b>🪤 头号坑复习：context 是顶层关键字参数，绝不能塞进 config！</b></p>
+  <p>错误写法：<code>agent.invoke(input, config={**CFG, "context": CTX})</code> → 工具里
+  <code>runtime.context=None</code> → <code>AttributeError</code>。</p>
+  <p>正确写法如上：<code>config=CFG</code>（抽屉号）和 <code>context=CTX</code>（工牌）是 invoke 的<b>两个并列的顶层参数</b>，各走各的通道。框架内部把 context 通过 <code>runtime.context</code> 递给工具。</p>
+</div>
+
+<h2>④ 按“下回车”之后发生了什么（运行时序）</h2>
+<div class="code"><span class="cm"># 伪时序：langgraph 在背后自动做</span>
+1. 读 config → 用 thread_id="t1" 问 checkpointer 要历史（第一次：空）
+2. 把输入合并进 state：messages += [用户这句话]，user_name = "小明"
+3. 进模型节点 → LLM 看 system_prompt，决定"该调 my_info 工具"
+4. 进工具节点 → my_info(runtime) 跑：打印 ①state ②store ③context 三块
+5. 工具返回汇总字符串 → 再回模型节点 → LLM 据此生成最终回答
+6. checkpointer 把最终 state 存回"t1 的抽屉"
+7. <span class="g">return 整份 state 字典</span> → 存到 r1</div>
+<div class="card gray">
+  <p><b><code>r1</code> 是什么？</b> 是运行结束后<b>整份 state 字典</b>（含所有 messages）。
+  所以取最终回答要：<code>r1["messages"][-1].content</code> —— messages 列表最后一条是 AI 的最终答复。</p>
+</div>
+
+<h2>⑤ 一句话总结这块</h2>
+<div class="tip">📌 <b>invoke 三个参数各管一件事：</b><br>
+第 1 个（位置参数）= 这次<b>输入内容</b>（messages + 自定义 state 键）；<br>
+<code>config=</code> = <b>抽屉号</b>（thread_id，决定记忆存哪取哪）；<br>
+<code>context=</code> = <b>工牌</b>（静态元数据，顶层传，别塞 config）。</div>
+
+</body>
+</html>

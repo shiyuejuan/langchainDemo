@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>61 · 同一个 agent 里 context 的增删改边界</title>
+<style>
+  :root{
+    --bg:#0f1420; --card:#1a2233; --line:#2c3852; --txt:#e6ebf5; --mut:#9fb0c9;
+    --blue:#4ea1ff; --green:#3ddc97; --orange:#ffb454; --red:#ff6b6b; --purple:#b388ff;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--txt);
+       font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;line-height:1.7;padding:28px}
+  h1{font-size:23px;margin:0 0 6px}
+  h2{font-size:18px;margin:30px 0 12px;color:var(--blue);border-left:4px solid var(--blue);padding-left:10px}
+  h3{font-size:15px;margin:18px 0 8px;color:var(--orange)}
+  p{margin:10px 0}
+  .sub{color:var(--mut);margin-top:0}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px 18px;margin:14px 0}
+  .code{background:#0b0f18;border:1px solid var(--line);border-radius:8px;padding:14px 16px;
+        overflow:auto;font-family:"SF Mono",Consolas,monospace;font-size:13px;color:#cfe3ff;white-space:pre}
+  .out{background:#0b0f18;border:1px solid var(--green);border-radius:8px;padding:12px 14px;
+       overflow:auto;font-family:"SF Mono",Consolas,monospace;font-size:12.5px;color:#bdffd9;white-space:pre}
+  .tag{display:inline-block;font-size:12px;padding:2px 9px;border-radius:20px;margin-right:6px;font-weight:600}
+  .t-ok{background:rgba(61,220,151,.15);color:var(--green)}
+  .t-no{background:rgba(255,107,107,.15);color:var(--red)}
+  .t-warn{background:rgba(255,180,84,.15);color:var(--orange)}
+  .note{background:rgba(179,136,255,.12);border-left:4px solid var(--purple);padding:10px 14px;border-radius:6px;margin:12px 0;font-size:14px}
+  .warn{background:rgba(255,107,107,.12);border-left:4px solid var(--red);padding:10px 14px;border-radius:6px;margin:12px 0;font-size:14px}
+  table{width:100%;border-collapse:collapse;margin:14px 0;font-size:13.5px}
+  th,td{border:1px solid var(--line);padding:9px 11px;text-align:left;vertical-align:top}
+  th{background:#16203a;color:var(--blue)}
+  td code{background:#0b0f18;padding:1px 5px;border-radius:4px;color:#cfe3ff}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  @media(max-width:780px){.grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+
+<h1>61 · 同一个 agent 里，context 到底能不能"增删改"</h1>
+<p class="sub">配套 <code>61-context-crud-same-agent.py</code>，全部结论实跑验证。一句话先给：<b>同一 agent 内只能改"值"；加/删"字段"只是改了某个对象，schema 冻结、不持久，且 del 已声明字段会崩。</b></p>
+
+<div class="card">
+<h3 style="margin-top:0">边界总览</h3>
+<table>
+<tr><th>操作</th><th>同一 agent 内能否做</th><th>真相</th></tr>
+<tr><td><b>改值</b>（env 从 test→prod）</td><td><span class="tag t-ok">可以</span></td><td>重传新实例即可，框架原样透传</td></tr>
+<tr><td><b>增字段</b>（schema 里加 region）</td><td><span class="tag t-no">不行</span></td><td>schema 在 create_agent 时冻结；只能给"对象"硬加属性，不进 schema、不持久</td></tr>
+<tr><td><b>删字段</b>（schema 里去掉 db_host）</td><td><span class="tag t-no">不行</span></td><td>不能运行时删定义；置空（=None）是安全做法；用 <code>del</code> 删已声明字段会崩</td></tr>
+</table>
+</div>
+
+<!-- ① 改值 -->
+<h2><span class="tag t-ok">① 改值 ✅</span>同一 agent，改字段的值</h2>
+<p>这是 context 唯一被"原生支持"的增删改动作。每次 <code>invoke(context=新实例)</code> 传入不同值，工具读到新值。schema 不变，只是内容变了。</p>
+<div class="code"># 同一个 agent、同一个 context_schema=AppContext
+ask("读取所有字段。", AppContext("u-1","test","db:5432"))
+ask("读取所有字段。", AppContext("u-1","prod","db:5432"))   # 重传实例改值</div>
+<div class="out">env=test : user_id='u-1' | env='test'  | db_host='db:5432' | region=不存在
+env=prod : user_id='u-1' | env='prod'  | db_host='db:5432' | region=不存在</div>
+
+<!-- ② 增 -->
+<h2><span class="tag t-no">② 增字段 ❌</span>schema 冻结，加不了"定义的字段"</h2>
+<p>同一个 agent 的 <code>context_schema</code> 在 <code>create_agent</code> 那一刻就固定了。工具里你可以用 Python 动态给对象加一个属性（如 <code>region</code>），但：</p>
+<div class="grid">
+  <div class="card"><h3 style="margin-top:0">能"硬加"（仅当前对象）</h3>
+  <div class="code">runtime.context.region = "cn-east"   # schema 没这字段</div>
+  <div class="out">加后(同对象): region='cn-east'</div></div>
+  <div class="card"><h3 style="margin-top:0">但换实例就消失（没进 schema、没被记住）</h3>
+  <div class="out">换全新实例: region=不存在</div>
+  <p class="sub">证明：加的是"那个 Python 对象"的属性，不是 schema 的一部分，框架不保存。</p></div>
+</div>
+<div class="note">想让 agent 真正多一个字段，只能：改 <code>AppContext</code> 类定义 + 重建 <code>create_agent</code>（新 agent）。同一 agent 内做不到。</div>
+
+<!-- ③ 删 -->
+<h2><span class="tag t-warn">③ 删字段 ⚠️</span>置空安全，del 危险</h2>
+<p>要"去掉"一个值，正确做法是<b>置空</b>；千万别用 Python 的 <code>del</code> 删已声明字段。</p>
+<div class="code"># 安全：置空（字段定义仍在 schema 里）
+runtime.context.db_host = None</div>
+<div class="out">删前(fresh): db_host='db:5432'
+置空后    : db_host=None
+换全新实例 : db_host='db:5432'   ← 置空只作用于那个对象，schema 没变</div>
+<div class="warn"><b>危险：<code>del runtime.context.db_host</code></b>（删已声明字段）。本轮可能不报错，但<b>下一个工具调用必崩</b>——因为框架要把 context 重新注入下一个工具的 <code>ToolRuntime</code>，并按 <code>AppContext</code> schema 校验，发现 <code>db_host</code> 缺失就抛 <code>AttributeError</code>。崩溃发生在框架注入参数阶段（tool_node 内部），工具自身的 try/except 救不了。</div>
+<div class="out">del 之后(本轮没事): 已执行删除操作，db_host 字段已从对象上移除。
+再调用工具 → 果然崩了: AttributeError : 'AppContext' object has no attribute 'db_host'
+  根因：框架把 context 重新注入下一个工具的 ToolRuntime 时，按 schema 校验发现字段缺失。</div>
+
+<!-- 结论 -->
+<h2>结论：context 不是数据库，动态增删键值该用 store</h2>
+<div class="card">
+<h3 style="margin-top:0">把职责分清楚</h3>
+<table>
+<tr><th>你想要的能力</th><th>该用谁</th></tr>
+<tr><td>一次传入、运行中只读的静态配置（env / db_host / api 根地址）</td><td><b>context</b>（@dataclass，点属性读；只能改值）</td></tr>
+<tr><td>运行期动态<b>增/删/查</b>键值，且<b>跨轮/跨会话记住</b></td><td><b>store</b>（<code>InMemoryStore.put/get/search/delete</code>，47/48/49 课讲过）</td></tr>
+<tr><td>随对话<b>演变</b>且被 checkpoint 记住的状态</td><td><b>state</b>（<code>Command(update={...})</code>，54/55/59 课讲过）</td></tr>
+</table>
+</div>
+<div class="note">一句话：同一 agent 内，context 只能"改值"；"增/删字段"是改某个对象、不进 schema、不持久，且 <code>del</code> 已声明字段会触发框架崩溃。真正需要动态增删键值并跨轮记住的，是 <b>store</b>，不是 context。</div>
+
+<div class="card">
+<h3 style="margin-top:0">怎么跑</h3>
+<div class="code">cd /Users/shiyuejuan/Desktop/Demo/langchainDemo/chapter02_model
+python3 61-context-crud-same-agent.py</div>
+<p class="sub">需 <code>.env</code> 配好 <code>DEEPSEEK_API_KEY</code>。约 9 次真实模型调用（驱动工具执行）。</p>
+</div>
+
+</body>
+</html>

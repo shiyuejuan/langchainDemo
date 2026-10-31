@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>60 · context 的「增删改」实跑讲解</title>
+<style>
+  :root{
+    --bg:#0f1420; --card:#1a2233; --line:#2c3852; --txt:#e6ebf5; --mut:#9fb0c9;
+    --blue:#4ea1ff; --green:#3ddc97; --orange:#ffb454; --red:#ff6b6b; --purple:#b388ff;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--txt);
+       font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;
+       line-height:1.7;padding:28px}
+  h1{font-size:24px;margin:0 0 6px}
+  h2{font-size:19px;margin:34px 0 12px;color:var(--blue);border-left:4px solid var(--blue);padding-left:10px}
+  h3{font-size:16px;margin:20px 0 8px;color:var(--orange)}
+  p{margin:10px 0}
+  .sub{color:var(--mut);margin-top:0}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;
+        padding:16px 18px;margin:14px 0}
+  .code{background:#0b0f18;border:1px solid var(--line);border-radius:8px;
+        padding:14px 16px;overflow:auto;font-family:"SF Mono",Consolas,monospace;
+        font-size:13px;color:#cfe3ff;white-space:pre}
+  .out{background:#0b0f18;border:1px solid var(--green);border-radius:8px;
+       padding:12px 14px;overflow:auto;font-family:"SF Mono",Consolas,monospace;
+       font-size:12.5px;color:#bdffd9;white-space:pre}
+  .tag{display:inline-block;font-size:12px;padding:2px 9px;border-radius:20px;
+       margin-right:6px;font-weight:600}
+  .t-add{background:rgba(61,220,151,.15);color:var(--green)}
+  .t-del{background:rgba(255,107,107,.15);color:var(--red)}
+  .t-upd{background:rgba(255,180,84,.15);color:var(--orange)}
+  .t-key{background:rgba(78,161,255,.15);color:var(--blue)}
+  .note{background:rgba(179,136,255,.12);border-left:4px solid var(--purple);
+        padding:10px 14px;border-radius:6px;margin:12px 0;font-size:14px}
+  .warn{background:rgba(255,107,107,.12);border-left:4px solid var(--red);
+        padding:10px 14px;border-radius:6px;margin:12px 0;font-size:14px}
+  table{width:100%;border-collapse:collapse;margin:14px 0;font-size:13.5px}
+  th,td{border:1px solid var(--line);padding:9px 11px;text-align:left;vertical-align:top}
+  th{background:#16203a;color:var(--blue)}
+  td code{background:#0b0f18;padding:1px 5px;border-radius:4px;color:#cfe3ff}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  @media(max-width:780px){.grid{grid-template-columns:1fr}}
+  .step{display:flex;align-items:center;gap:10px;margin:8px 0}
+  .box{border:1px dashed var(--line);border-radius:8px;padding:8px 12px;font-size:13px}
+  .arrow{color:var(--mut);font-size:18px}
+</style>
+</head>
+<body>
+
+<h1>60 · context 的「增删改」实跑讲解</h1>
+<p class="sub">课程 1.2.2 第三种上下文 context（静态运行时）。全部结论由 <code>60-context-crud-demo.py</code> 实跑验证，不是猜的。</p>
+
+<div class="card">
+<h3 style="margin-top:0">先定位：context 到底是什么（代码层面）</h3>
+<div class="code"># 1) 用 @dataclass 定义"形状"
+@dataclass
+class AppContext:
+    user_id: str
+    env: str
+    db_host: str
+
+# 2) 在 create_agent 里声明形状（只是类型提示 + 校验，不存数据）
+agent = create_agent(..., context_schema=AppContext)
+
+# 3) 每次 invoke 把【具体实例】塞进去（顶层参数，不是 config 里）
+CTX = AppContext(user_id="u-1001", env="test", db_host="db:5432")
+agent.invoke({...}, config=CFG, context=CTX)
+
+# 4) 工具里用"点属性"读取
+@tool
+def my_tool(question: str, runtime: ToolRuntime) -> str:
+    ctx = runtime.context
+    return f"{ctx.user_id} / {ctx.env}"   # 点属性，不是方括号</div>
+<p><b>一句话：</b>context 是你每次调用时手动传入的一个普通 Python 对象，框架只是把它原样交给工具，<b>既不保存、也不帮你改</b>。这是理解"增删改"的总纲。</p>
+</div>
+
+<!-- ===================== 增 ===================== -->
+<h2><span class="tag t-add">增 ADD</span>在 context 里加一个字段</h2>
+<p>context 是 <code>@dataclass</code>，"加字段"就是改定义 + 构造实例时提供。不需要动框架、不需要动工具（工具用 <code>getattr</code> 兼容新旧两种 schema 即可）。</p>
+<div class="code"># 在原来的 3 字段基础上，新增 region
+@dataclass
+class AppContextV2:
+    user_id: str
+    env: str
+    db_host: str
+    region: str            # ← 新增字段
+
+CTX2 = AppContextV2(user_id="u-1001", env="test", db_host="db:5432", region="cn-east")</div>
+<div class="out">实跑输出（工具读到新字段）：
+region='cn-east'</div>
+<div class="note">"增"的本质 = 在 dataclass 类里多写一个属性。框架只认你声明的 <code>context_schema</code> 类型，实例带什么值就传什么值。</div>
+
+<!-- ===================== 删 ===================== -->
+<h2><span class="tag t-del">删 DELETE</span>去掉一个 context 值</h2>
+<p>context 不是数据库，没有"运行中途删一行"这种操作。它的"删"只有两层含义：</p>
+<div class="grid">
+  <div class="card">
+    <h3 style="margin-top:0">① 静态删除（推荐）</h3>
+    <p>从 <code>@dataclass</code> 定义里删掉该字段，构造实例时不再提供。工具里用 <code>getattr(ctx, "字段", 默认值)</code> 读取，删了也不报错。</p>
+  </div>
+  <div class="card">
+    <h3 style="margin-top:0">② 本次不传（运行时隐藏）</h3>
+    <p>某次 <code>invoke</code> 省略 <code>context=</code> 参数 → 工具里 <code>runtime.context</code> 变成 <code>None</code>。工具<b>必须先判空</b>，否则 <code>AttributeError</code>。</p>
+  </div>
+</div>
+<div class="code">@tool
+def show_ctx(question: str, runtime: ToolRuntime) -> str:
+    ctx = runtime.context
+    if ctx is None:                      # ← 不传时必须判空
+        return "【runtime.context 是 None】本次 invoke 没有传 context"
+    return f"{ctx.user_id} / {ctx.env}"</div>
+<div class="out">实跑输出（本次 invoke 省略 context 参数）：
+【runtime.context 是 None】本次 invoke 没有传 context</div>
+
+<!-- ===================== 改 ===================== -->
+<h2><span class="tag t-upd">改 UPDATE</span>改 context 的值</h2>
+<p>有两种"改法"，结果天差地别——这是本节课最该记住的点。</p>
+
+<h3>改法 A（推荐）：下一次 invoke 传入"改过的实例"</h3>
+<p>框架不会替你改 context。想换值，就自己构造一个新实例再传进去。跨 invoke 生效，干净、可控。</p>
+<div class="code">r1 = agent.invoke({...}, config=cfg, context=AppContext("u-1","test","db:5432"))
+r2 = agent.invoke({...}, config=cfg, context=AppContext("u-1","prod","db:5432"))  # 换了实例</div>
+<div class="out">实跑输出：
+第 1 次(env=test):  user_id=u-1, env=test,  db_host=db:5432
+第 2 次(env=prod):  user_id=u-1, env=prod,  db_host=db:5432   ← env 变了</div>
+
+<h3>改法 B（能改，但不是"记忆"）：工具里直接改对象属性</h3>
+<p>dataclass 默认可变，工具里写 <code>runtime.context.env = "MUTATED"</code> 语法上能成功。但<b>这只在这个 Python 对象上生效</b>：如果你反复传<b>同一个实例</b>，下一轮能看到；一旦传入<b>一个全新实例</b>，改动立刻归零。框架从头到尾没碰过它。</p>
+<div class="code">shared = AppContext("u-1", "test", "db:5432")   # 同一个可变实例
+
+# a. 读 shared        → env = test
+# b. 工具里改 shared   → env 被改成 MUTATED
+# c. 再读 shared       → env = MUTATED   （同一对象，看得见）
+# d. 读【全新实例】    → env = test      （框架没保存，归零）</div>
+<div class="out">实跑输出（关键证明）：
+a. 读(同一实例 shared): 当前 env = test
+b. 改(仍传 shared):     已把 env 改成 MUTATED
+c. 再读(仍传 shared):   当前 env = MUTATED   ← 看见改动，但这是对象共享
+d. 读(全新实例):       当前 env = test      ← 改动消失，框架没存</div>
+<div class="warn">改法 B 只适合"本次运行临时借用"，绝不能用它当"跨轮记忆"。真正的跨轮记忆请用 <code>state</code>（工具返回 <code>Command(update={...})</code> 写回 + checkpointer 保存）——那是 54/55/59 课讲过的机制。</div>
+
+<!-- ===================== 关键验证 ===================== -->
+<h2><span class="tag t-key">关键验证</span>context 不被 checkpoint 记住</h2>
+<p>同一个 <code>thread_id</code>，第 1 次传了 context，第 2 次<b>完全不传</b>。如果框架"记住"了，第 2 次应读到旧值；结果是 <code>None</code>。</p>
+<div class="out">实跑输出（同一线程 t-remember）：
+第 1 次(传了):       user_id=u-9, env=test, db_host=db:5432
+第 2 次(同线程·不传): 【runtime.context 是 None】本次 invoke 没有传 context</div>
+<div class="note">结论：context 不存在 checkpoint 的 <code>channel_values</code> 里。它每次都是"你传什么就是什么"，不随线程续命。对比 state——state 的自定义字段会进 <code>channel_values</code> 并被 checkpointer 留住（见 56/58 课）。</div>
+
+<!-- ===================== 对照表 ===================== -->
+<h2>context 增删改 vs state 增删改（一句话对照）</h2>
+<table>
+<tr><th>维度</th><th>context（静态运行时）</th><th>state（动态运行时）</th></tr>
+<tr><td>数据存在哪</td><td>你每次 invoke 传入的临时对象</td><td>checkpoint 的 <code>channel_values</code></td></tr>
+<tr><td>跨 invoke 是否保留</td><td><b>否</b>（不传就没，同线程也不记）</td><td><b>是</b>（同 thread_id 自动续）</td></tr>
+<tr><td>"增"怎么做</td><td>改 <code>@dataclass</code> 定义 + 提供新字段</td><td><code>Command(update={"新键":值})</code> 写回</td></tr>
+<tr><td>"删"怎么做</td><td>从定义删字段 / 本次不传（变 None）</td><td>一般不清空，或覆盖为新值</td></tr>
+<tr><td>"改"怎么做</td><td>下次传新实例；或工具改对象（仅本次对象有效）</td><td>工具 <code>Command(update={...})</code> 写回，被记住</td></tr>
+<tr><td>典型用途</td><td>工牌/环境变量：env、db_host、api 根地址</td><td>对话中演变的数据：user_name、counter</td></tr>
+</table>
+
+<!-- ===================== 避坑 ===================== -->
+<h2>三个避坑点</h2>
+<div class="warn"><b>坑 1：不传 context 不报错，但读到 None。</b> 工具第一句务必 <code>if runtime.context is None: return ...</code>，否则 <code>ctx.user_id</code> 直接 <code>AttributeError</code> 崩溃。</div>
+<div class="warn"><b>坑 2：<code>context_schema</code> 是可选的。</b> 不声明也能用，但声明后框架会按类型校验你传入的实例；传错形状会报错。团队项目建议声明。</div>
+<div class="warn"><b>坑 3：别把 context 当记忆用。</b> 工具里改 <code>runtime.context.xxx</code> 看起来"生效了"，但换实例/换线程立刻丢。要记忆，用 state。</div>
+
+<div class="card">
+<h3 style="margin-top:0">怎么跑这份 demo</h3>
+<div class="code">cd /Users/shiyuejuan/Desktop/Demo/langchainDemo/chapter02_model
+python3 60-context-crud-demo.py</div>
+<p class="sub">需要 <code>Demo/langchainDemo/.env</code> 里配好 <code>DEEPSEEK_API_KEY</code>。每次 invoke 会真实调用一次 DeepSeek（约 7 次），用来驱动工具执行。</p>
+</div>
+
+</body>
+</html>

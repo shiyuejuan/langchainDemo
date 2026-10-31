@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>45 ｜ 第09章开篇：上下文与记忆</title>
+<style>
+  body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;margin:0;
+       background:#f5f7fa;color:#1f2933;line-height:1.7;}
+  .wrap{max-width:980px;margin:0 auto;padding:32px 24px 64px;}
+  h1{font-size:26px;margin:0 0 4px;}
+  .sub{color:#647084;margin:0 0 28px;font-size:14px;}
+  .card{background:#fff;border-radius:14px;padding:24px 26px;margin:22px 0;
+        box-shadow:0 2px 10px rgba(31,41,51,.06);}
+  .card h2{font-size:18px;margin:0 0 14px;color:#2563eb;}
+  svg{display:block;width:100%;height:auto;}
+  pre{background:#0f172a;color:#e2e8f0;padding:14px 16px;border-radius:10px;
+      font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;
+      overflow-x:auto;white-space:pre;}
+  .n{color:#fbbf24;} .g{color:#34d399;} .c{color:#7c8aa0;}
+  .take{background:#fff7ed;border-left:4px solid #f59e0b;padding:12px 16px;
+        border-radius:0 8px 8px 0;margin:16px 0;font-size:14px;}
+  table{border-collapse:collapse;width:100%;font-size:14px;margin-top:6px;}
+  th,td{border:1px solid #e3e8ef;padding:8px 10px;text-align:left;vertical-align:top;}
+  th{background:#f0f4ff;color:#334155;}
+  code{background:#eef2f7;padding:1px 6px;border-radius:5px;font-size:13px;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>第09章开篇：上下文与记忆</h1>
+  <p class="sub">第 15 讲 · agent 从"金鱼脑"到"有记性" · checkpointer + thread_id 入门</p>
+
+  <div class="card">
+    <h2>① 两个词先分清</h2>
+    <table>
+      <tr><th>概念</th><th>是什么</th><th>类比</th></tr>
+      <tr><td><b>上下文</b>（context）</td><td>每次调模型时<b>发出去</b>的内容：消息历史 + 系统提示 + 工具定义</td><td>考试时摊在桌上的资料</td></tr>
+      <tr><td><b>记忆</b>（memory）</td><td><b>跨调用保留</b>的内容：state 里的消息历史存在哪、存多久</td><td>笔记本/草稿纸</td></tr>
+      <tr><td><b>短期记忆</b></td><td><code>checkpointer</code> 按 <code>thread_id</code> 存取 state → 多轮对话的"记性"</td><td>一 conversations 一个本子</td></tr>
+      <tr><td><b>长期记忆</b></td><td><code>store</code>，跨 thread 共享（本章后面讲）</td><td>公共档案柜</td></tr>
+    </table>
+    <div class="take">
+      <b>和已学内容的衔接：</b>28 课 ContextEditingMiddleware 是"发送前修剪上下文"（省 token 不删历史）；
+      本章的 checkpointer 才是"历史从哪来"的答案——<b>先有记忆，才谈得上修剪</b>。
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>② 记忆怎么流转：invoke + checkpointer 全流程</h2>
+    <svg viewBox="0 0 720 400" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <marker id="arr" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+          <path d="M0,0 L8,3 L0,6 Z" fill="#94a3b8"/>
+        </marker>
+      </defs>
+
+      <!-- agent -->
+      <rect x="40" y="120" width="200" height="120" rx="12" fill="#dbeafe" stroke="#3b82f6" stroke-width="2"/>
+      <text x="56" y="146" font-size="13" font-weight="bold" fill="#1d4ed8">create_agent(</text>
+      <text x="56" y="168" font-size="12" fill="#1e40af">  model, tools,</text>
+      <text x="56" y="190" font-size="12" fill="#1e40af">  checkpointer=</text>
+      <text x="56" y="212" font-size="12" fill="#1e40af">    InMemorySaver())</text>
+
+      <!-- 存储盒 -->
+      <rect x="420" y="40" width="260" height="290" rx="12" fill="#f1f5f9" stroke="#64748b" stroke-width="2"/>
+      <text x="436" y="66" font-size="13" font-weight="bold" fill="#334155">InMemorySaver（存 state）</text>
+
+      <!-- 线程1 -->
+      <rect x="440" y="84" width="220" height="100" rx="8" fill="#dcfce7" stroke="#16a34a" stroke-width="1.5"/>
+      <text x="452" y="106" font-size="12" fill="#166534">thread_id="xiaoming"</text>
+      <rect x="452" y="118" width="40" height="26" rx="5" fill="#86efac"/>
+      <text x="472" y="136" font-size="10" fill="#14532d" text-anchor="middle">H 你好我叫小明</text>
+      <rect x="498" y="118" width="30" height="26" rx="5" fill="#86efac"/>
+      <text x="513" y="136" font-size="10" fill="#14532d" text-anchor="middle">A 回复</text>
+      <rect x="452" y="150" width="40" height="26" rx="5" fill="#86efac"/>
+      <text x="472" y="168" font-size="10" fill="#14532d" text-anchor="middle">H 我叫什么</text>
+      <rect x="498" y="150" width="30" height="26" rx="5" fill="#86efac"/>
+      <text x="513" y="168" font-size="10" fill="#14532d" text-anchor="middle">A 小明</text>
+      <text x="570" y="168" font-size="11" fill="#166534">← 4 条，历史续上</text>
+
+      <!-- 线程2 -->
+      <rect x="440" y="200" width="220" height="64" rx="8" fill="#fee2e2" stroke="#ef4444" stroke-width="1.5"/>
+      <text x="452" y="222" font-size="12" fill="#991b1b">thread_id="hacker"</text>
+      <rect x="452" y="234" width="40" height="24" rx="5" fill="#fca5a5"/>
+      <text x="472" y="251" font-size="10" fill="#7f1d1d" text-anchor="middle">H 我叫什么</text>
+      <text x="500" y="251" font-size="11" fill="#991b1b">← 只有自己，2 条</text>
+
+      <!-- 流程箭头 -->
+      <path d="M240 160 C 320 160 340 134 416 134" fill="none" stroke="#94a3b8" stroke-width="2" marker-end="url(#arr)"/>
+      <text x="252" y="126" font-size="11" fill="#475569">invoke(新消息, thread_id)</text>
+      <path d="M416 200 C 340 230 320 220 246 204" fill="none" stroke="#94a3b8" stroke-width="2" marker-end="url(#arr)"/>
+      <text x="252" y="248" font-size="11" fill="#475569">读旧 state → 加新消息 → 写回</text>
+
+      <!-- 底部注 -->
+      <rect x="40" y="300" width="640" height="80" rx="8" fill="#fef3c7"/>
+      <text x="56" y="326" font-size="12" fill="#92400e">无 checkpointer：state 不保存，每次 invoke 从零开始 → 金鱼脑（连消息历史都不留）。</text>
+      <text x="56" y="348" font-size="12" fill="#92400e">有 checkpointer：每次 invoke 结束把整个 state（含全部消息）写入存储，</text>
+      <text x="56" y="368" font-size="12" fill="#92400e">下次同 thread_id 的 invoke 自动读回来续上 → "记得住"。</text>
+    </svg>
+  </div>
+
+  <div class="card">
+    <h2>③ 实跑铁证：消息条数一眼看穿</h2>
+    <pre><span class="c"># ① 无 checkpointer：两次 invoke 各自独立</span>
+第1次（<span class="n">2</span> 条消息）：你好，小明！…我已记住你的名字啦
+第2次（<span class="n">2</span> 条消息）：我不知道你的名字…        <span class="c">← 金鱼脑！</span>
+
+<span class="c"># ② InMemorySaver + thread_id="xiaoming"</span>
+第1次（<span class="n">2</span> 条消息）：你好，小明！…
+第2次（<span class="n">4</span> 条消息）：你叫小明呀！我之前就记住啦  <span class="g">← 历史续上了！</span>
+
+<span class="c"># ③ 同一 checkpointer 换 thread_id="hacker"</span>
+新线程（<span class="n">2</span> 条消息）：我不知道你的名字…        <span class="c">← 线程隔离，不串台</span></pre>
+    <div class="take">
+      <b>读法：</b>消息条数 = state 里积累了多少历史。②里第二次变 4 条（第1次的 H+A + 第2次的 H+A），
+      说明 checkpointer 把第1次的 state 存下来、第2次 invoke 读回来续上了。
+      ①和③永远只有 2 条，说明历史压根没被保存。
+    </div>
+    <pre><span class="c"># 核心就两行：</span>
+agent = create_agent(model, tools, checkpointer=InMemorySaver())
+agent.invoke({<span class="s">"messages"</span>: [...]}, {<span class="s">"configurable"</span>: {<span class="s">"thread_id"</span>: <span class="s">"xiaoming"</span>}})</pre>
+  </div>
+
+  <div class="card">
+    <h2>④ 本章路线图</h2>
+    <table>
+      <tr><th>小节</th><th>内容</th><th>状态</th></tr>
+      <tr><td>开篇</td><td>上下文 vs 记忆；checkpointer + thread_id（本课 45）</td><td>✅ 已讲</td></tr>
+      <tr><td>短期记忆进阶</td><td>state 持久化到磁盘（SqliteSaver 等）、跨进程恢复</td><td>待讲</td></tr>
+      <tr><td>上下文管理</td><td>SummarizationMiddleware（历史太长自动压缩）、ContextEditing 复习</td><td>待讲</td></tr>
+      <tr><td>长期记忆</td><td>store：跨 thread 的用户画像/偏好记忆</td><td>待讲</td></tr>
+    </table>
+  </div>
+</div>
+</body>
+</html>

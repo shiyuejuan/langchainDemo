@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>41 ｜ wrap_model_call 与 wrap_tool_call 调用顺序</title>
+<style>
+  body{
+    font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;
+    margin:0;background:#f5f7fa;color:#1f2933;line-height:1.7;
+  }
+  .wrap{max-width:980px;margin:0 auto;padding:32px 24px 64px;}
+  h1{font-size:26px;margin:0 0 4px;}
+  .sub{color:#647084;margin:0 0 28px;font-size:14px;}
+  .card{background:#fff;border-radius:14px;padding:24px 26px;margin:22px 0;
+        box-shadow:0 2px 10px rgba(31,41,51,.06);}
+  .card h2{font-size:18px;margin:0 0 14px;color:#2563eb;}
+  svg{display:block;width:100%;height:auto;}
+  .legend{display:flex;gap:18px;flex-wrap:wrap;margin:14px 0 0;font-size:13px;}
+  .legend span{display:inline-flex;align-items:center;gap:6px;}
+  .dot{width:12px;height:12px;border-radius:3px;display:inline-block;}
+  table{border-collapse:collapse;width:100%;font-size:14px;margin-top:6px;}
+  th,td{border:1px solid #e3e8ef;padding:8px 10px;text-align:left;}
+  th{background:#f0f4ff;color:#334155;}
+  code{background:#eef2f7;padding:1px 6px;border-radius:5px;font-size:13px;}
+  .take{background:#fff7ed;border-left:4px solid #f59e0b;padding:12px 16px;
+        border-radius:0 8px 8px 0;margin:16px 0;font-size:14px;}
+  .orderline{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px;
+        background:#0f172a;color:#e2e8f0;padding:14px 16px;border-radius:10px;
+        white-space:pre;overflow-x:auto;}
+  .m{color:#60a5fa;}  /* model */
+  .t{color:#34d399;}  /* tool */
+  .k{color:#fbbf24;}  /* key */
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>wrap_model_call 与 wrap_tool_call 的调用顺序</h1>
+  <p class="sub">第 11 讲 · 洋葱模型延伸 · middleware = [外层, 内层]，每个实例同时实现两种 wrap</p>
+
+  <div class="card">
+    <h2>① 一个 agent 循环里，两套洋葱怎么摆</h2>
+    <svg viewBox="0 0 720 510" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <marker id="arr" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+          <path d="M0,0 L8,3 L0,6 Z" fill="#94a3b8"/>
+        </marker>
+      </defs>
+
+      <!-- ===== 模型工位（MODEL 洋葱）===== -->
+      <rect x="60" y="40" width="600" height="190" rx="14" fill="#dbeafe" stroke="#3b82f6" stroke-width="2"/>
+      <text x="76" y="64" font-size="13" font-weight="bold" fill="#1d4ed8">模型工位 · 被 MODEL 洋葱包裹（wrap_model_call）</text>
+
+      <!-- 外层壳：before 标壳顶，after 标壳底 -->
+      <rect x="90" y="76" width="540" height="140" rx="10" fill="#bfdbfe" stroke="#2563eb" stroke-width="1.5"/>
+      <text x="104" y="98" font-size="12" fill="#1e40af">[外层] MODEL ▶ before</text>
+      <text x="616" y="208" font-size="12" fill="#1e40af" text-anchor="end">[外层] MODEL ◀ after</text>
+
+      <!-- 内层壳 -->
+      <rect x="118" y="110" width="484" height="72" rx="8" fill="#93c5fd" stroke="#1d4ed8" stroke-width="1.5"/>
+      <text x="132" y="132" font-size="12" fill="#1e3a8a">[内层] MODEL ▶ before</text>
+      <text x="588" y="176" font-size="12" fill="#1e3a8a" text-anchor="end">[内层] MODEL ◀ after</text>
+
+      <!-- 核心：真正调 LLM -->
+      <rect x="146" y="142" width="428" height="22" rx="6" fill="#60a5fa"/>
+      <text x="360" y="157" font-size="11" fill="#0c2d6b" text-anchor="middle">…真正调 LLM…</text>
+
+      <!-- 箭头：模型工位 → 工具工位 -->
+      <line x1="360" y1="230" x2="360" y2="262" stroke="#94a3b8" stroke-width="2" marker-end="url(#arr)"/>
+      <text x="372" y="252" font-size="12" fill="#475569">LLM 决定调工具</text>
+
+      <!-- ===== 工具工位（TOOL 洋葱）===== -->
+      <rect x="60" y="270" width="600" height="190" rx="14" fill="#d1fae5" stroke="#10b981" stroke-width="2"/>
+      <text x="76" y="294" font-size="13" font-weight="bold" fill="#047857">工具工位 · 被 TOOL 洋葱包裹（wrap_tool_call）</text>
+
+      <rect x="90" y="306" width="540" height="140" rx="10" fill="#a7f3d0" stroke="#059669" stroke-width="1.5"/>
+      <text x="104" y="328" font-size="12" fill="#065f46">[外层] TOOL ▶ before</text>
+      <text x="616" y="438" font-size="12" fill="#065f46" text-anchor="end">[外层] TOOL ◀ after</text>
+
+      <rect x="118" y="340" width="484" height="72" rx="8" fill="#6ee7b7" stroke="#047857" stroke-width="1.5"/>
+      <text x="132" y="362" font-size="12" fill="#064e3b">[内层] TOOL ▶ before</text>
+      <text x="588" y="406" font-size="12" fill="#064e3b" text-anchor="end">[内层] TOOL ◀ after</text>
+
+      <rect x="146" y="372" width="428" height="22" rx="6" fill="#34d399"/>
+      <text x="360" y="387" font-size="11" fill="#064e3b" text-anchor="middle">…真正执行工具…</text>
+
+      <!-- 箭头：工具工位 → 送回模型工位（fill="none" 防止黑斑！）-->
+      <path d="M664 365 C 700 365 700 135 664 135" fill="none" stroke="#94a3b8" stroke-width="2" marker-end="url(#arr)"/>
+      <text transform="translate(704 250) rotate(90)" text-anchor="middle" font-size="11" fill="#475569">结果送回 · 第 2 轮 MODEL 整段再来</text>
+
+      <!-- 第二轮提示 -->
+      <rect x="60" y="474" width="600" height="26" rx="6" fill="#fef3c7"/>
+      <text x="76" y="491" font-size="11" fill="#92400e">第 2 轮：工具结果喂回 → 模型工位（MODEL 洋葱）再次整段运行</text>
+    </svg>
+    <div class="legend">
+      <span><i class="dot" style="background:#3b82f6"></i>MODEL 洋葱（包模型节点）</span>
+      <span><i class="dot" style="background:#10b981"></i>TOOL 洋葱（包工具节点）</span>
+    </div>
+    <div class="take">
+      <b>关键：</b>两套洋葱<b>不交叉</b>。MODEL 四行（外层→内层→内层→外层）是<b>一整块</b>，
+      TOOL 四行也是<b>一整块</b>；模型工位整段结束，工具工位才整段开始，结束后模型再来一轮。
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>② 实跑输出 → 时间轴</h2>
+    <div class="orderline"><span class="m">[外层] MODEL ▶ before</span>
+<span class="m">[内层] MODEL ▶ before</span>
+<span class="m">[内层] MODEL ◀ after</span>
+<span class="m">[外层] MODEL ◀ after</span>   ← MODEL 整段结束
+<span class="t">[外层] TOOL  ▶ before</span>
+<span class="t">[内层] TOOL  ▶ before</span>
+<span class="t">[内层] TOOL  ◀ after</span>
+<span class="t">[外层] TOOL  ◀ after</span>   ← TOOL 整段结束
+<span class="m">[外层] MODEL ▶ before</span>   ← 第 2 轮 MODEL 再来
+<span class="m">[内层] MODEL ▶ before</span>
+<span class="m">[内层] MODEL ◀ after</span>
+<span class="m">[外层] MODEL ◀ after</span></div>
+  </div>
+
+  <div class="card">
+    <h2>③ 三句话记住</h2>
+    <table>
+      <tr><th>要点</th><th>说明</th></tr>
+      <tr><td>各自成洋葱</td><td>model 和 tool 各按 <code>middleware</code> 列表顺序排层：外层先进后出、内层后进先出</td></tr>
+      <tr><td>套在不同工位</td><td>model 壳只包 <b>模型节点</b>，tool 壳只包 <b>工具节点</b>，两壳不互相嵌套</td></tr>
+      <tr><td>整段不交叉</td><td>先 MODEL 整段 → 再 TOOL 整段 → 再 MODEL 第 2 轮（因为 LLM 决定调工具，工具结果再回 LLM）</td></tr>
+    </table>
+    <div class="take">
+      和第 35 课的区别：35 课讲<b>多个中间件之间</b>怎么套娃；本课讲<b>同一个中间件上的两种 wrap</b>
+      如何分别套在模型工位和工具工位上——它们是平行的两套套娃，不是一套套娃里的内外层。
+    </div>
+  </div>
+</div>
+</body>
+</html>

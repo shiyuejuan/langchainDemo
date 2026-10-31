@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>50b · @dataclass 与 TypedDict 人话版</title>
+<style>
+  body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+         max-width: 820px; margin: 0 auto; padding: 26px 20px; color: #1e293b; line-height: 1.95; background: #f8fafc; }
+  h1 { font-size: 23px; border-bottom: 3px solid #2563eb; padding-bottom: 10px; }
+  h2 { font-size: 18px; margin-top: 30px; color: #1d4ed8; }
+  .card { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px 20px; margin: 14px 0; }
+  .blue { border-left: 5px solid #2563eb; }
+  .green { border-left: 5px solid #059669; }
+  .amber { border-left: 5px solid #d97706; }
+  .bubble { background:#eef2ff; border-radius:14px; padding:12px 16px; margin:10px 0; font-size:15px; }
+  code { background:#eef2ff; color:#3730a3; padding:1px 6px; border-radius:4px; font-size:13px; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; background:#fff; font-size:14px; }
+  th, td { border:1px solid #cbd5e1; padding:8px 11px; text-align:left; }
+  th { background:#eff6ff; }
+</style>
+</head>
+<body>
+
+<h1>50b · @dataclass 和 TypedDict 人话版</h1>
+<p>上一篇术语太多，这里一个术语一个比喻，把两行代码讲成"生活小事"。</p>
+
+<div class="bubble">🎯 先记总纲：这两段代码，其实只干了两种日常动作——
+<b>① 印一张工牌模板</b>（@dataclass）；<b>② 在标准表格上加一栏</b>（继承 MessagesState）。</div>
+
+<h2>一、<code>@dataclass</code> = "填空题，让机器帮你写阅卷规则"</h2>
+<div class="card blue">
+  <p>你只写一句话："我这张工牌上有 <b>user_id、env、db_host</b> 三个格。"</p>
+  <p>按老办法，你还得再写一大段"怎么把这三个格装进卡里、怎么打印"的代码——又臭又长。</p>
+  <p><code>@dataclass</code> 做的事就一句：<b>"那一大段'装填+打印'的代码，Python 替你自动生成，别写了。"</b></p>
+  <p>比喻：你只写"试卷有 3 道填空题"，监考老师（@dataclass）自动把答题卡怎么收、怎么打印都备好了。你只管<code>AppContext(...)</code> 填答案。</p>
+  <p style="margin:6px 0">所以：<b><code>user_id: str</code> 不是废话，是"原料"</b>——@dataclass 正是靠这三行原料造出整套规则。</p>
+</div>
+
+<h2>二、<code>MessagesState</code> = "一张早就印好的表"</h2>
+<div class="card green">
+  <p>它<b>不是</b>一个能装的盒子，是"一张规定好长啥样的表"。它自己就带一个格子，叫 <code>messages</code>。</p>
+  <p>这个格子有点特殊：你往里加新消息，<b>不是把整张表重写，而是贴到后面追加</b>（专业词叫 reducer，但你记住"追加不覆盖"就行）。</p>
+  <p>比喻：<code>messages</code> 是<b>聊天记录本</b>，每说一句话，新的那句写在本子最后一行——前面的不会被擦掉。这就是聊天越聊越长的原因。</p>
+</div>
+
+<h2>三、<code>MyState(MessagesState)</code> = "在国标表上加一栏"</h2>
+<div class="card green">
+  <p>你想在"聊天记录本"基础上，再多记一个"用户名"怎么办？写法就是：</p>
+  <p><code>class MyState(MessagesState):   user_name: str</code></p>
+  <p>比喻：<code>MessagesState</code> 是<b>国家标准表格</b>（有"聊天记录"那一栏）；<code>MyState</code> 就是"在标准表后面，我自己补了一栏'用户名'"。</p>
+  <p><b>继承</b>这两个字，在这里的意思就是：<b>沿用标准表，再补一栏</b>。一句话记住。</p>
+</div>
+
+<h2>四、为什么一个用 @dataclass、一个用继承？（核心问题）</h2>
+<table>
+  <tr><th>数据</th><th>生活原型</th><th>最省事的写法</th></tr>
+  <tr><td>AppContext（context）</td><td>🪪 一张<b>印好的工牌</b>（进场定死，不可改）</td><td>@dataclass：自动造卡片，填空即可</td></tr>
+  <tr><td>MyState（state）</td><td>📋 一张<b>要在国标表上加栏</b>的白板</td><td>继承：抄标准表，补一栏</td></tr>
+</table>
+<div class="card amber">
+  <p style="margin:4px 0">两种数据<b>长相不同</b>，所以姿势不同：</p>
+  <p>工牌是<b>卡片</b> → 看上面印的字用"点"：<code>ctx.env</code>（像翻到工牌上 env 那格）</p>
+  <p>白板是<b>一张纸</b> → 按标签找用"方括号"：<code>state['user_name']</code>（像抽出写有 user_name 的便签）</p>
+  <p>这就是 43 课那个坑的根源：工具调用记录是"纸"（dict），模型请求是"卡片"（对象）。</p>
+</div>
+
+<h2>五、一句话口诀（背这句就够）</h2>
+<div class="bubble">
+📌 <b>"卡片"用点（<code>ctx.env</code>）；"便签纸"用方括号（<code>state['user_name']</code>）。</b><br>
+📌 要造一张固定卡片 → 用 <code>@dataclass</code>；要在标准表上加栏 → 用 <code>继承 MessagesState</code>。
+</div>
+
+</body>
+</html>
